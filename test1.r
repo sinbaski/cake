@@ -1,6 +1,6 @@
 library(RMySQL);
 library(alabama);
-library(forecast);
+## library(forecast);
 rm(list=ls());
 
 source("libxxie.r");
@@ -11,7 +11,6 @@ my.fun <- function(coef, R) {
     I <- which(abs(auto) <= 2/sqrt(dim(R)[1]));
     auto[I] <- 0;
     ## auto <- auto * exp(-(0:(p-1)/10));
-    ## TODO: use squares instead of abs
     return(-sum(auto^2));
 }
 
@@ -23,26 +22,33 @@ day2 = '2015-05-28';
 day1 = '2010-01-01';
 
 ## databased located at 85.228.154.211
-database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
-    dbname='avanza', host=Sys.getenv("PB"));
 
 assetSet <- "indices";
-if (assetSet == "indices") {
-    results = dbSendQuery(database, sprintf("select tblname from %s;", assetSet));
-    tables <- fetch(results, n=-1)[[1]];
-    p = length(tables);
-} else {
-    results = dbSendQuery(database, sprintf("select symbol from %s;", assetSet));
-    tables <- fetch(results, n=-1)[[1]];
-    p = length(tables);
-    for (i in 1 : p) {
-        tables[i] <- gsub("[.]", "_", tables[i]);
-        tables[i] <- gsub("-", "_series_", tables[i]);
-        tables[i] <- paste(tables[i], "_SE", sep="");
+if (length(assetSet)) {
+    database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
+        dbname='avanza', host=Sys.getenv("PB"));
+
+    if (assetSet == "indices") {
+        results = dbSendQuery(database, sprintf("select tblname from %s;",
+            assetSet));
+        tables <- fetch(results, n=-1)[[1]];
+        dbClearResult(results);
+    } else if (length(assetSet) && length(grep(".+_components", assetSet))) {
+        results = dbSendQuery(database, sprintf("select symbol from %s;",
+            assetSet));
+        tables <- fetch(results, n=-1)[[1]];
+        dbClearResult(results);
+        for (i in 1 : p) {
+            tables[i] <- gsub("[.]", "_", tables[i]);
+            tables[i] <- gsub("-", "_series_", tables[i]);
+            tables[i] <- paste(tables[i], "_SE", sep="");
+        }
     }
+    dbDisconnect(database);
+} else {
+    tables <- c("DAX", "CAC40", "FTSE100", "SP500", "Nikkei225", "OMXS30");
 }
-dbClearResult(results);
-dbDisconnect(database);
+p = length(tables);
 data <- getAssetReturns(day1, day2, tables);
 R = matrix(unlist(data[, -1]), nrow=dim(data)[1], byrow=FALSE);
 T = dim(R)[1];
@@ -71,18 +77,33 @@ library(rugarch);
 ##
 ## For the generalized hyperbolic skewed t distribution
 ## alpha 
-fitted <- fitdist(distribution="ghyp", ret);
+res <- inferInnovations(ret);
+fitted <- fitdist(distribution="ghyp", res);
+U <- pdist(distribution="ghyp", q=res,
+           mu=fitted$pars[1],
+           sigma=fitted$pars[2],
+           skew=fitted$pars[3],
+           shape=fitted$pars[4],
+           lambda=fitted$pars[5]
+           );
+library(nortest);
+ad.test(qnorm(U))
+
 spec <- ugarchspec(mean.model=list(
-                       armaOrder=c(1, 1),
+                       armaOrder=c(0, 1),
                        include.mean=FALSE),
                    distribution.model="ghyp",
                    variance.model=list(
-                       model="sGARCH",
+                       model="gjrGARCH",
                        garchOrder=c(1, 1)
                    ),
                    fixed.pars=list(
-                       mu=fitted$pars[1], skew=fitted$pars[3],
-                       shape=fitted$pars[4], ghlambda=fitted$pars[5]),
+                       mu=fitted$pars[1],
+                       sigma=fitted$pars[2],
+                       skew=fitted$pars[3],
+                       shape=fitted$pars[4],
+                       ghlambda=fitted$pars[5]
+                   ),
                    );
 model <- ugarchfit(spec=spec, data=ret);
 cluster <- makePSOCKcluster(4);

@@ -1,5 +1,5 @@
 library(RMySQL);
-source("innovations-algorithm.R");
+source("innovations-algorithm.r");
 
 getAssetReturns <- function(day1, day2, tables) {
     database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
