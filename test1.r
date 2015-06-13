@@ -89,8 +89,39 @@ U <- pdist(distribution="ghyp", q=res,
 library(nortest);
 ad.test(qnorm(U))
 
+## In case the situation is complicated
+##
+## Akaike <- matrix(Inf, nrow=5,ncol=5);
+## Baysian <- matrix(Inf, nrow=5,ncol=5);
+## for (p in 1:3) {
+##     for (q in 1:3) {
+##         spec <- ugarchspec(mean.model=list(
+##                                armaOrder=c(p, q),
+##                                include.mean=FALSE),
+##                            distribution.model="ghyp",
+##                            variance.model=list(
+##                                model="gjrGARCH",
+##                                garchOrder=c(1, 1)
+##                            ),
+##                            fixed.pars=list(
+##                                ## mu=fitted$pars[1],
+##                                ## sigma=fitted$pars[2],
+##                                skew=fitted$pars[3],
+##                                shape=fitted$pars[4],
+##                                ghlambda=fitted$pars[5]
+##                            ),
+##                            );
+##         model <- ugarchfit(spec=spec, data=ret);
+##         if (0 == convergence(model)) {
+##             Akaike[p,q] <- infocriteria(model)[1];
+##             Baysian[p,q] <- infocriteria(model)[2];
+##         }
+##     }
+## }
+
+## I <- which(Baysian==min(Baysian), arr.ind=TRUE);
 spec <- ugarchspec(mean.model=list(
-                       armaOrder=c(0, 1),
+                       armaOrder=c(1,1),
                        include.mean=FALSE),
                    distribution.model="ghyp",
                    variance.model=list(
@@ -98,16 +129,15 @@ spec <- ugarchspec(mean.model=list(
                        garchOrder=c(1, 1)
                    ),
                    fixed.pars=list(
-                       mu=fitted$pars[1],
-                       sigma=fitted$pars[2],
+                       ## mu=fitted$pars[1],
+                       ## sigma=fitted$pars[2],
                        skew=fitted$pars[3],
                        shape=fitted$pars[4],
                        ghlambda=fitted$pars[5]
                    ),
                    );
 model <- ugarchfit(spec=spec, data=ret);
-cluster <- makePSOCKcluster(4);
-# solver.control=list(n.restarts=3, parallel=TRUE, pkg="multicore", cores=4, n.sim=3)
+cluster <- makePSOCKcluster(strtoi(Sys.getenv("NumCores")));
 roll <- ugarchroll(spec, ret, n.start=floor(T*0.8), refit.every=40,
                    refit.window="moving", window.size=1000,
                    solver="hybrid", calculate.VaR=TRUE,
@@ -115,28 +145,5 @@ roll <- ugarchroll(spec, ret, n.start=floor(T*0.8), refit.every=40,
 
 stopCluster(cluster);
 
-## acov <- acf(ret, type="covariance", plot=FALSE);
-## inno <- inferInnovations(ret);
-
-
-## Akaike <- matrix(nrow=5,ncol=5);
-## Beysian <- matrix(nrow=5,ncol=5);
-## for (p in 1:5) {
-##     for (q in 1:5) {
-##         spec <- ugarchspec(mean.model=list(armaOrder=c(p, q),
-##                                include.mean=FALSE),
-##                            distribution.model="ghyp",
-##                            variance.model=list(
-##                                model="sGARCH",
-##                                garchOrder=c(1, 1)
-##                            )
-##                            );
-##         model <- ugarchfit(spec=spec, data=ret);
-##         if (0 == convergence(model)) {
-##             Akaike[p,q] <- infocriteria(model)[1];
-##             Beysian[p,q] <- infocriteria(model)[2];
-##         }
-##     }
-## }
 
 
