@@ -1,7 +1,8 @@
+rm(list=ls());
 library(RMySQL);
 library(alabama);
 ## library(forecast);
-rm(list=ls());
+
 
 source("libxxie.r");
 
@@ -37,6 +38,7 @@ if (length(assetSet)) {
         results = dbSendQuery(database, sprintf("select symbol from %s;",
             assetSet));
         tables <- fetch(results, n=-1)[[1]];
+        p = length(tables);
         dbClearResult(results);
         for (i in 1 : p) {
             tables[i] <- gsub("[.]", "_", tables[i]);
@@ -49,7 +51,8 @@ if (length(assetSet)) {
     tables <- c("DAX", "CAC40", "FTSE100", "SP500", "Nikkei225", "OMXS30");
 }
 p = length(tables);
-data <- getAssetReturns(day1, day2, tables);
+                                        # data <- getAssetReturns(day1, day2, tables);
+data <- getInterpolatedReturns(day1, day2, tables);
 R = matrix(unlist(data[, -1]), nrow=dim(data)[1], byrow=FALSE);
 T = dim(R)[1];
 ## C <- t(R) %*% R / T;
