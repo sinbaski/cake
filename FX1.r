@@ -3,6 +3,11 @@ library(abind);
 library(RMySQL);
 library(dse);
 
+cor.conf.ntvl <- function (prob, N) {
+    z <- qnorm(prob, mean=0, sd=1/sqrt(N-3));
+    x <- exp(2*z);
+    return ((x - 1)/(x + 1));
+}
 database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
     dbname='avanza', host="localhost");
 
@@ -30,17 +35,52 @@ tables <- c(
 
 p <- length(tables);
 ret <- list();
+sigmas <- rep(NA, p);
 for (i in 1:p) {
     results <- dbSendQuery(database, sprintf("select rate from %s order by day;", tables[i]));
     A <- fetch(results, n=-1)[[1]];
     dbClearResult(results);
-    A <- (A - mean(A))/sd(A)
+    A <- diff(log(A));
+    
+    ##    A <- (A - mean(A))/sd(A)
     if (length(ret) == 0) {
         ret <- A;
     } else {
         ret <- cbind(ret, A);
     }
+    sigmas[i] <- sd(A);
 }
+n <- dim(ret)[1];
+dbDisconnect(database);
+
+max.lag <- 60;
+lagged.cov <- array(dim=c(p,p,1));
+lagged.cor <- array(dim=c(p,p,1));
+r <- cor.conf.ntvl(c(0.01, 0.99), n);
+h <- 1;
+while (h <= max.lag) {
+    A <- matrix(ncol=p, nrow=p);
+    for (i in 1:p) {
+        for (j in 1:p) {
+            A[i, j] <- cov(ret[1:(n-h), i], ret[(1+h):n, j]);
+        }
+    }
+    B <- A / sigmas;
+    if (min(B) > r[1] && max(B) < r[2]) {
+        break;
+    }
+    if (h==1) {
+        lagged.cov[,,1] <- A;
+        lagged.cor[,,1] <- B;
+    } else {
+        lagged.cov <- abind(lagged.cov, A, along=3);
+        lagged.cor <- abind(lagged.cor, B, along=3);
+    }
+    h <- h + 1;
+}
+
+ts <- TSdata(input=ret);
+
 n <- dim(ret)[1];
 E <- list();
 for (i in 0:5) {

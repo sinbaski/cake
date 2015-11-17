@@ -18,9 +18,9 @@ for i in range(1, len(sys.argv)):
         quantity = int(mo.group(1));
         symbol = mo.group(2);
 
-        # print ("create table {}_SEK_Rates ("
-        #        "day date primary key not null,"
-        #        "rate double);").format(mo.group(2));
+        print ("create table {}_SEK_Rates ("
+               "day date primary key not null,"
+               "rate double);").format(mo.group(2));
         print "insert into {}_SEK_Rates values ".format(symbol),
         for i in range(5, 1258):
             date = ws.cell(row=i, column=1).value;

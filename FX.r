@@ -6,28 +6,29 @@ database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
     dbname='avanza', host="localhost");
 
 currencies <- c(
-"AUD_Prices",
-"CHF_Prices",
-"CNY_Prices",
-"DKK_Prices",
-"EUR_Prices",
-"GBP_Prices",
-"HKD_Prices",
-"JPY_Prices",
-"NOK_Prices",
-"USD_Prices"
+"AUD_SEK_Rates",
+"CHF_SEK_Rates",
+"CNY_SEK_Rates",
+"DKK_SEK_Rates",
+"EUR_SEK_Rates",
+"GBP_SEK_Rates",
+"HKD_SEK_Rates",
+"JPY_SEK_Rates",
+"NOK_SEK_Rates",
+"USD_SEK_Rates"
 );
 
 p <- length(currencies);
-results <- dbSendQuery(database, "select count(*) from USD_Prices where day >= \"2013-01-01\";");
-n <- fetch(results, n=-1)[[1]];
-dbClearResult(results);
+prices <- list();
 
-prices <- matrix(NA, ncol=length(currencies), nrow=n);
 for (i in 1:length(currencies)) {
-    results <- dbSendQuery(database, sprintf("select price from %s
+    results <- dbSendQuery(database, sprintf("select rate from %s
 where day >= '2013-01-01' order by day;", currencies[i]));
-    prices[,i] <- fetch(results, n=-1)[[1]];
+    if (length(prices) == 0) {
+        prices <- fetch(results, n=-1)[[1]];
+    } else {
+        prices <- cbind(prices, fetch(results, n=-1)[[1]]);
+    }
     dbClearResult(results);
 }
 ret <- diff(log(prices));
@@ -70,7 +71,7 @@ while (h <= max.lag) {
     h <- h + 1;
 }
 ## max.lag <- h-1;
-## results <- dbSendQuery(database, "select price from DKK_Prices where day >= '2014-10-01' order by day;" );
+## results <- dbSendQuery(database, "select price from DKK_SEK_Rates where day >= '2014-10-01' order by day;" );
 ## prices <- fetch(results, n=-1)[[1]];
 ## dbClearResult(results);
 dbDisconnect(database);
