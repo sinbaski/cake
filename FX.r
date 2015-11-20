@@ -5,18 +5,44 @@ library(RMySQL);
 database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
     dbname='avanza', host="localhost");
 
+## currencies <- c(
+## "AUD_SEK_Rates",
+## "CAD_SEK_Rates",
+## "CHF_SEK_Rates",
+## "CNY_SEK_Rates",
+## "CZK_SEK_Rates",
+## "DKK_SEK_Rates",
+## "EUR_SEK_Rates",
+## "GBP_SEK_Rates",
+## "HKD_SEK_Rates",
+## "HUF_SEK_Rates",
+## "JPY_SEK_Rates",
+## "KRW_SEK_Rates",
+## "MAD_SEK_Rates",
+## "MXN_SEK_Rates",
+## "NOK_SEK_Rates",
+## "NZD_SEK_Rates",
+## "PLN_SEK_Rates",
+## "SAR_SEK_Rates",
+## "SGD_SEK_Rates",
+## "THB_SEK_Rates",
+## "TRY_SEK_Rates",
+## "USD_SEK_Rates",
+## );
+
 currencies <- c(
 "AUD_SEK_Rates",
+"CAD_SEK_Rates",
 "CHF_SEK_Rates",
 "CNY_SEK_Rates",
 "DKK_SEK_Rates",
 "EUR_SEK_Rates",
 "GBP_SEK_Rates",
-"HKD_SEK_Rates",
 "JPY_SEK_Rates",
 "NOK_SEK_Rates",
 "USD_SEK_Rates"
 );
+
 
 p <- length(currencies);
 prices <- list();
@@ -69,6 +95,23 @@ while (h <= max.lag) {
         lagged.cor <- abind(lagged.cor, B, along=3);
     }
     h <- h + 1;
+}
+
+for (i in seq(1, h-1)) {
+    A <- lagged.cor[,,i];
+    B <- A * (A < r[1] | A > r[2]);
+    sink(sprintf("lagged_cor_%d.txt", i));
+    for (j in seq(1:dim(B)[1])) {
+        for (k in seq(1:dim(B)[1])) {
+            if (B[j,k] != 0) {
+                cat(sprintf("%7.2f", B[j,k]));
+            } else {
+                cat(sprintf("      0", B[j,k]));
+            }
+        }
+        for (k in 1:5) cat("\n");
+    }
+    sink();
 }
 ## max.lag <- h-1;
 ## results <- dbSendQuery(database, "select price from DKK_SEK_Rates where day >= '2014-10-01' order by day;" );
