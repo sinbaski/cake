@@ -1,6 +1,5 @@
 library(RMySQL);
 library(abind);
-source("innovations-algorithm.R");
 
 ###
 # A matrix of return values derived from price data on common days
@@ -38,20 +37,6 @@ day between '%s' and '%s' order by day;", tables[i], day1, day2));
     }
     dbDisconnect(database);
     return (data.frame(days[-1], R));
-}
-
-### Given a vector of observations, infer the innovations
-inferInnovations <- function(X) {
-    p <- length(X);
-    acov <- acf(X, type="covariance", plot=FALSE)$acf;
-    acov <- append(acov, rep(0, length(X) - length(acov) + 1));
-    InnAlgo <- innovations.algorithm(acov);
-    inno <- rep(NA, p);
-    inno[1] <- X[1];
-    for (i in 1:p-1) {
-        inno[i+1] <- X[i+1] - sum(InnAlgo$thetas[[p]][1:i]*rev(inno[1:i]));
-    }
-    return(inno);
 }
 
 getInterpolatedReturns <- function(day1, day2, assetSet) {

@@ -1,0 +1,109 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{enumerate}
+\usepackage{subfigure}
+\usepackage[bookmarks=true]{hyperref}
+\usepackage{bookmark}
+\usepackage{graphicx}
+
+\input{../work/physics_common}
+\title{On Foreign Exchange Rates}
+\author{Xie Xiaolei}
+\date{\today}
+\begin{document}
+\maketitle
+
+\section{The eigenvector of the smallest eigenvalue}\label{sec:acf}
+Construct a portfolio according to the eigenvector associated with the
+smallest eigenvalue of the covariance matrix. Call it the
+least-variance portfolio. The auto-correlation function of the
+least-variance portfolio is shown in figure \ref{fig:1-day-ret-acf}:
+\begin{figure}[htb!]
+  \centering
+  \includegraphics[scale=0.3]{least-variance-ptfl-acf.pdf}
+  \caption{Auto-correlation function of the least-variance
+    portfolio. The portfolio is constructed according to the
+    eigenvector associated with the smallest eigenvalue of the
+    covariance matrix of 1-day returns of 22 foreign exchange rates
+    against the Swedish crown.}
+  \label{fig:1-day-ret-acf}
+\end{figure}
+
+The eigenvector of the smallest eigenvalue has components as plotted
+in figure \ref{fig:V_p-components}.
+\begin{figure}[htb!]
+  \centering
+  \includegraphics[scale=0.3]{eigenvector_p_comp.pdf}
+  \caption{Components of the eigenvector associated with the smallest
+    eigenvalue.}
+  \label{fig:V_p-components}
+\end{figure}
+
+\section{The largest eigenvalues}
+The eigenvalues of the sample covariance matrix is plotted in figure
+\ref{fig:Eigenvalues_of_FX_cov}, and the components of the
+eigenvectors associated with the largest 6 eigenvalues are plotted in
+figure \ref{fig:eigenvector_components_largest_values1} and
+\ref{fig:eigenvector_components_largest_values2}.
+
+\begin{figure}[htb!]
+  \centering
+  \includegraphics[scale=0.3]{Eigenvalues_of_FX_cov.pdf}
+  \caption{Eigenvalues of the sample covariance matrix.}
+  \label{fig:Eigenvalues_of_FX_cov}
+\end{figure}
+
+
+\begin{figure}[htb!]
+  \centering
+  \subfigure[FX Covariance $V_1$]{
+    \includegraphics[scale=0.3]{eigenvector_1_comp.pdf}
+  }
+  \subfigure[SP500 Covariance $V_1$]{
+    \includegraphics[scale=0.3]{../work/papers/segments/V1_CovarianceMatrix.pdf}
+  }
+  \subfigure[FX Covariance $V_2$]{
+    \includegraphics[scale=0.3]{eigenvector_2_comp.pdf}
+  }
+  \subfigure[SP500 Covariance $V_2$]{
+    \includegraphics[scale=0.3]{../work/papers/segments/V2_CovarianceMatrix.pdf}
+  }
+  \subfigure[FX Covariance $V_3$]{
+    \includegraphics[scale=0.3]{eigenvector_3_comp.pdf}
+  }
+  \subfigure[SP500 Covariance $V_3$]{
+    \includegraphics[scale=0.3]{../work/papers/segments/V3_CovarianceMatrix.pdf}
+  }
+  \caption{Eigenvectors corresponding to the largest eigenvalues}
+  \label{fig:eigenvector_components_largest_values1}
+\end{figure}
+
+\begin{figure}[htb!]
+  \centering
+  \subfigure[FX Covariance $V_4$]{
+    \includegraphics[scale=0.3]{eigenvector_4_comp.pdf}
+  }
+  \subfigure[SP500 Covariance $V_4$]{
+    \includegraphics[scale=0.3]{../work/papers/segments/V4_CovarianceMatrix.pdf}
+  }
+  \subfigure[FX Covariance $V_5$]{
+    \includegraphics[scale=0.3]{eigenvector_5_comp.pdf}
+  }
+  \subfigure[SP500 Covariance $V_5$]{
+    \includegraphics[scale=0.3]{../work/papers/segments/V5_CovarianceMatrix.pdf}
+  }
+  \subfigure[FX Covariance $V_6$]{
+    \includegraphics[scale=0.3]{eigenvector_6_comp.pdf}
+  }
+  \subfigure[SP500 Covariance $V_6$]{
+    \includegraphics[scale=0.3]{../work/papers/segments/V6_CovarianceMatrix.pdf}
+  }
+  \caption{Eigenvectors corresponding to the largest eigenvalues}
+  \label{fig:eigenvector_components_largest_values2}
+\end{figure}
+
+
+\bibliographystyle{unsrt}
+\bibliography{../work/thesis/econophysics}
+\end{document}
