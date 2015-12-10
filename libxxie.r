@@ -177,6 +177,8 @@ cor.conf.ntvl <- function (prob, N) {
 }
 
 computeCovCorr <- function(data, max.lag=60) {
+    n <- dim(data)[1];
+    p <- dim(data)[2];
     lagged.cov <- array(dim=c(p,p,1));
     lagged.cor <- array(dim=c(p,p,1));
     r <- cor.conf.ntvl(c(0.01, 0.99), n);

@@ -72,6 +72,11 @@ n <- dim(ret)[1];
 C <- cov(ret);
 E <- eigen(C);
 eigen.ptfl <- ret %*% E$vectors;
+I <- which(abs(E$vectors[, p]) > 0.05);
+
+A <- computeCovCorr(ret[, I]);
+B <- computeCovCorr(eigen.ptfl);
+
 ## d <- 5;
 ## A <- rep(NA, n-d+1);
 ## for (i in d:n) {
