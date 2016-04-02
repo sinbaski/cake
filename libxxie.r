@@ -5,7 +5,7 @@ library(abind);
 # A matrix of return values derived from price data on common days
 # of all stocks in the given tables.
 ### 
-getAssetReturns <- function(day1, day2, tables) {
+getAssetReturns <- function(day1, day2, tables, col.name) {
     database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
         dbname='avanza', host=Sys.getenv("PB"));
     days <- vector('character');
@@ -30,8 +30,11 @@ day between '%s' and '%s' order by day;", tables[i], day1, day2));
     }
 
     for (i in 1:length(tables)) {
-        results <- dbSendQuery(database, sprintf("select closing from
-%s where day in (%s) order by day;", tables[i], str));
+        results <- dbSendQuery(
+            database,
+            sprintf("select %s from %s where day in (%s) order by day;",
+                    col.name, tables[i], str)
+            );
         prices <- fetch(results, n=-1)[[1]];
         R[,i] <- diff(log(prices));
     }

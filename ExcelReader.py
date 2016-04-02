@@ -22,7 +22,7 @@ for i in range(1, len(sys.argv)):
                "day date primary key not null,"
                "rate double);").format(mo.group(2));
         print "insert into {}_SEK_Rates values ".format(symbol),
-        for i in range(5, 1258):
+        for i in range(5, 1572):
             date = ws.cell(row=i, column=1).value;
             try:
                 value = float(ws.cell(row=i, column=j).value)/quantity;
