@@ -59,6 +59,7 @@ public:
 	float cash = 1;
 	virtual void trade(float new_price, transaction& action) = 0;
 	virtual void mutate(void) = 0;
+	virtual float computeVaR(void) = 0;
 
 	trader(float cash, int time_frame, const vector<float>& data) throw();
 	trader(const trader& clone);

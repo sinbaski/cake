@@ -37,7 +37,7 @@ currencies <- c(
 
 ret <- getAssetReturns("2010-01-04", "2016-04-01",
                        currencies, 1,
-                       "rate", "31.208.142.23");
+                       "rate", "localhost");
 n <- dim(ret)[1];
 
 window <- 60;
@@ -74,12 +74,6 @@ for (t in (window:(n-5))) {
                     message(sprintf("An error occured while fitting the model. t=%d. q=%d\n", t, q));
                     message(cond);
                     q <- q + 1;
-                },
-                warning=function(cond) {
-                    message(sprintf("A warning occured while fitting the model. t=%d\n", t));
-                    message(cond);
-                    has.model <- TRUE;
-                    next;
                 }
             );
         }
@@ -98,13 +92,12 @@ for (t in (window:(n-5))) {
             message(sprintf("An error occured while predicting with the model. t=%d", t));
             message(cond);
             break;
-        },
-        warning=function(cond) {
-            message(sprintf("A warning occured while predicting with the model. t=%d", t));
-            message(cond);
         }
-    )
+    );
 }
+
+J <- J[which(!is.na(J))];
+K <- K[which(!is.na(K))];
 
 
 
