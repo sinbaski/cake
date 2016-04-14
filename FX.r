@@ -37,68 +37,77 @@ currencies <- c(
 
 ret <- getAssetReturns("2010-01-04", "2016-04-01",
                        currencies, 1,
-                       "rate", "localhost");
+                       "rate", "31.208.142.23");
 n <- dim(ret)[1];
 
 window <- 60;
-period <- window/2;
-horizon <- 5;
+period <- 20;
 p <- 4;
-R <- matrix(NA, window + period, p);
 J <- rep(NA, n-window);
 K <- rep(NA, n-window);
+F <- rep(NA, n-window);
+price <- 1;
+w <- 1;
 has.model <- FALSE;
-for (t in (window:(n-5))) {
+for (t in (window:(n-1))) {
     if ((t - window) %% period == 0 || !has.model) {
         ## We need to refit the model
         q <- p;
+        has.model <- FALSE;
         C <- cov(ret[(t-window+1):t, ]);
         E <- eigen(C);
-        while (!has.model && q <= 10) {
+        for (q in p) {
             tryCatch(
                 expr={
-                    if (t > window) {
-                        k <- ceiling((t - window)/period)*period + window;
-                    } else {
-                        k <- window + period;
-                    }
-                    R <- ret[(t-window+1):k, ] %*% E$vectors[, 1:q];
-                    model <- ar(R[1:window, ]);
-                    if (model$order == 0) {
-                        q <- q + 1;
-                    } else {
+                    model <- ar(ret[(t-window+1):t, ] %*% E$vectors[, 1:q]);
+                    if (model$order > 0) {
                         has.model <- TRUE;
+                        break;
+                    } else {
+                        message(sprintf("Null model at t=%d, q=%d\n", t, q));
                     }
                 },
                 error=function(cond) {
                     message(sprintf("An error occured while fitting the model. t=%d. q=%d\n", t, q));
                     message(cond);
-                    q <- q + 1;
                 }
             );
         }
         if (!has.model) {
+            J[t-window+1] <- ret[t+1, ] %*% E$vectors[, w];
             message(sprintf("No AR model is found at t=%d.\n", t));
             next;
         }
     }
-    i <- window + (t - window) %% period;
-    J[t-window+1] <- R[i+1, 1];
+    J[t-window+1] <- ret[t+1, ] %*% E$vectors[, w];
     tryCatch(
         expr={
-            K[t-window+1] <- predict(model, newdata=R[(i-model$order+1):i, ])$pred[1];
+            R <- predict(model,
+                         newdata=ret[(t-model$order+1):t, ]
+                         %*%
+                         E$vectors[, 1:q])$pred;
+            K[t-window+1] <- R[w];
+            F[t-window+1] <- price*exp(R[w]);
         },
         error=function(cond) {
             message(sprintf("An error occured while predicting with the model. t=%d", t));
             message(cond);
-            break;
+        },
+        finally={
+            price <- price * exp(ret[t+1, ] %*% E$vectors[, w]);
+            message("price updated.\n");
         }
     );
+    
 }
+I <- which(is.na(K));
+K[I] = 0;
+F[I] <- F[I-1];
 
-J <- J[which(!is.na(J))];
-K <- K[which(!is.na(K))];
-
+plot(1:length(J), exp(cumsum(J)), type="l");
+lines(1:length(F), F, col="#00FF00");
+dens <- density(K-J);
+plot(dens$x, dens$y, type="l");
 
 
 ## ## A <- computeCovCorr(eigen.ptfl);
