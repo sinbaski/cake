@@ -1,4 +1,5 @@
 rm(list=ls());
+library(MTS);
 library(abind);
 library(RMySQL);
 source("common/libxxie.r");
@@ -40,7 +41,7 @@ ret <- getAssetReturns("2010-01-04", "2016-04-01",
                        "rate", "31.208.142.23");
 n <- dim(ret)[1];
 
-window <- 60;
+window <- 240;
 period <- 20;
 p <- 4;
 J <- rep(NA, n-window);
@@ -56,7 +57,7 @@ for (t in (window:(n-1))) {
         has.model <- FALSE;
         C <- cov(ret[(t-window+1):t, ]);
         E <- eigen(C);
-        for (q in p) {
+        for (q in p:(p+4)) {
             tryCatch(
                 expr={
                     model <- ar(ret[(t-window+1):t, ] %*% E$vectors[, 1:q]);
@@ -95,7 +96,6 @@ for (t in (window:(n-1))) {
         },
         finally={
             price <- price * exp(ret[t+1, ] %*% E$vectors[, w]);
-            message("price updated.\n");
         }
     );
     
