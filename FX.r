@@ -21,13 +21,13 @@ currencies <- c(
     "JPY_SEK_Rates",
     "KRW_SEK_Rates",
 
-    "MAD_SEK_Rates",
+    ## "MAD_SEK_Rates",
     "MXN_SEK_Rates",
     "NOK_SEK_Rates",
 
     "NZD_SEK_Rates",
     ## "PLN_SEK_Rates",
-    ## "SAR_SEK_Rates",
+    "SAR_SEK_Rates",
 
     "SGD_SEK_Rates",
     ## "THB_SEK_Rates",
@@ -36,14 +36,17 @@ currencies <- c(
     "USD_SEK_Rates"
     );
 
+## ret <- getAssetReturns("2010-01-04", "2016-04-01",
+##                        currencies, 1,
+##                        "rate", "31.208.142.23");
 ret <- getAssetReturns("2010-01-04", "2016-04-01",
                        currencies, 1,
-                       "rate", "31.208.142.23");
+                       "rate", "localhost");
 n <- dim(ret)[1];
 
-window <- 240;
-period <- 20;
-p <- 4;
+window <- 360;
+period <- 60;
+p <- 5;
 J <- rep(NA, n-window);
 K <- rep(NA, n-window);
 F <- rep(NA, n-window);
@@ -53,14 +56,14 @@ has.model <- FALSE;
 for (t in (window:(n-1))) {
     if ((t - window) %% period == 0 || !has.model) {
         ## We need to refit the model
-        q <- p;
         has.model <- FALSE;
         C <- cov(ret[(t-window+1):t, ]);
         E <- eigen(C);
-        for (q in p:(p+4)) {
+        for (q in 5) {
             tryCatch(
                 expr={
-                    model <- ar(ret[(t-window+1):t, ] %*% E$vectors[, 1:q]);
+                    model <- VAR(ret[(t-window+1):t, ] %*% E$vectors[, 1:q], p=20);
+                    model <- refVAR(model);
                     if (model$order > 0) {
                         has.model <- TRUE;
                         break;

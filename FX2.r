@@ -18,13 +18,13 @@ currencies <- c(
     "JPY_SEK_Rates",
     "KRW_SEK_Rates",
 
-    "MAD_SEK_Rates",
+    ## "MAD_SEK_Rates",
     "MXN_SEK_Rates",
     "NOK_SEK_Rates",
 
     "NZD_SEK_Rates",
     ## "PLN_SEK_Rates",
-    ## "SAR_SEK_Rates",
+    "SAR_SEK_Rates",
 
     "SGD_SEK_Rates",
     ## "THB_SEK_Rates",
@@ -35,23 +35,26 @@ currencies <- c(
 
 ret <- getAssetReturns("2010-01-04", "2016-04-01",
                        currencies, 1,
-                       "rate", "31.208.142.23");
+                       "rate", "localhost");
 n <- dim(ret)[1];
+p <- dim(ret)[2];
 
-w <- 240;
+w <- 360;
 C <- cov(ret[(n-w+1):n, ]);
 E <- eigen(C);
 
-p <- 4;
+R <- ret[(n-w+1):n, ] %*% E$vectors;
+E <- eigen(cov(R));
 
-
-## R <- ret[(n-w+1):n, ] %*% E$vectors[, 1:p];
-R <- result$loadings;
-par(mfrow=c(2,3));
-for (i in 1:(p-1)) {
-    for (j in (i+1):p) {
+d <- 5;
+## R <- result$loadings;
+par(mfrow=c(2,5));
+for (i in 1:(d-1)) {
+    for (j in (i+1):d) {
         ccf(R[, i], R[, j], lag.max=20, type="correlation",
-            main=sprintf("%d & %d, window=%d", i, j, w));
+            main=sprintf("%d & %d, window=%d", i, j, w),
+            ylim=c(-0.18, 0.18));
+        grid();
     }
 }
 x11();
