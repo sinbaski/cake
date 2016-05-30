@@ -39,27 +39,60 @@ ret <- getAssetReturns("2010-01-04", "2016-04-01",
 n <- dim(ret)[1];
 p <- dim(ret)[2];
 
-w <- 360;
-C <- cov(ret[(n-w+1):n, ]);
-E <- eigen(C);
-
-R <- ret[(n-w+1):n, ] %*% E$vectors;
-E <- eigen(cov(R));
-
-d <- 5;
-## R <- result$loadings;
-par(mfrow=c(2,5));
-for (i in 1:(d-1)) {
-    for (j in (i+1):d) {
-        ccf(R[, i], R[, j], lag.max=20, type="correlation",
-            main=sprintf("%d & %d, window=%d", i, j, w),
-            ylim=c(-0.18, 0.18));
-        grid();
-    }
-}
-x11();
-
-par(mfrow=c(2,2));
+w <- n;
+E <- eigen(cov(ret));
+D <- eigen(cov(abs(ret)));
+F <- eigen(cov(ret^2));
+## R <- (tail(ret, w) %*% E$vectors);
+## E <- eigen(cov(R));
+## plot(1:p, (E$values)/sum(E$values));
+## grid();
+## x11();
+pdf("/tmp/FX_eigenvectors.pdf")
+par(mfrow=c(3,6));
 for (i in 1:p) {
-    acf(R[, i]);
+    V <- E$vectors[, i];
+    k <- which.max(abs(V));
+    V <- V * sign(V[k]);
+    plot(1:p, V, main=sprintf("eigenvector[%d]", i),
+         xlab="i", ylab=expression(V[i]),
+         ylim=c(-1, 1));
+
+    V <- D$vectors[, i];
+    k <- which.max(abs(V));
+    V <- V * sign(V[k]);
+    points(1:p, V, main=sprintf("eigenvector[%d]", i),
+           col="#FF0000",
+           ylim=c(-1, 1));
+
+    V <- F$vectors[, i];
+    k <- which.max(abs(V));
+    V <- V * sign(V[k]);
+    points(1:p, V, main=sprintf("eigenvector[%d]", i),
+           col="#00FF00",
+           ylim=c(-1, 1));
+    
+    grid();
 }
+dev.off();
+
+## d <- 5;
+## ## R <- result$loadings;
+## par(mfrow=c(2,5));
+## for (i in 1:(d-1)) {
+##     for (j in (i+1):d) {
+##         ccf(R[, i], R[, j], type="correlation",
+##             lag.max=10,
+##             main=sprintf("%d & %d, window=%d", i, j, w),
+##             ylim=c(-0.18, 0.18));
+##         grid();
+##     }
+## }
+
+
+## x11();
+
+## par(mfrow=c(2,2));
+## for (i in 1:4) {
+##     acf(R[, i]);
+## }
