@@ -1,6 +1,4 @@
 rm(list=ls());
-library(abind);
-library(RMySQL);
 source("common/libxxie.r");
 
 currencies <- c(
