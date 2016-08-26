@@ -18,7 +18,7 @@ Frankfurt <- function(name, day)
     prices <- getAssetPrices("2010-01-03", "2015-05-27", name, 1, "closing", "localhost");
     n <- length(prices);
 
-    dev <- computeDeviations(prices, 120);
+    dev <- computeDeviations(prices, 20);
     
 
     ## bandwidth <- 2*sd(prices[(n-20+1):n]);
