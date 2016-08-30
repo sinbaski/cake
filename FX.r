@@ -2,6 +2,8 @@ rm(list=ls());
 library(MTS);
 library(abind);
 library(RMySQL);
+library(TTR);
+library(zoo);
 source("common/libxxie.r");
 
 currencies <- c(
@@ -21,13 +23,13 @@ currencies <- c(
     "JPY_SEK_Rates",
     "KRW_SEK_Rates",
 
-    ## "MAD_SEK_Rates",
+    "MAD_SEK_Rates",
     "MXN_SEK_Rates",
     "NOK_SEK_Rates",
 
     "NZD_SEK_Rates",
     ## "PLN_SEK_Rates",
-    "SAR_SEK_Rates",
+    ## "SAR_SEK_Rates",
 
     "SGD_SEK_Rates",
     ## "THB_SEK_Rates",
@@ -36,103 +38,97 @@ currencies <- c(
     "USD_SEK_Rates"
     );
 
-## ret <- getAssetReturns("2010-01-04", "2016-04-01",
-##                        currencies, 1,
-##                        "rate", "31.208.142.23");
-ret <- getAssetReturns("2010-01-04", "2016-04-01",
-                       currencies, 1,
-                       "rate", "localhost");
-n <- dim(ret)[1];
+names <- c(
+    "AUD",
+    "CAD",
+    "CHF",
 
-window <- 360;
-period <- 60;
-p <- 5;
-J <- rep(NA, n-window);
-K <- rep(NA, n-window);
-F <- rep(NA, n-window);
-price <- 1;
-w <- 1;
-has.model <- FALSE;
-for (t in (window:(n-1))) {
-    if ((t - window) %% period == 0 || !has.model) {
-        ## We need to refit the model
-        has.model <- FALSE;
-        C <- cov(ret[(t-window+1):t, ]);
-        E <- eigen(C);
-        for (q in 5) {
-            tryCatch(
-                expr={
-                    model <- VAR(ret[(t-window+1):t, ] %*% E$vectors[, 1:q], p=20);
-                    model <- refVAR(model);
-                    if (model$order > 0) {
-                        has.model <- TRUE;
-                        break;
-                    } else {
-                        message(sprintf("Null model at t=%d, q=%d\n", t, q));
-                    }
-                },
-                error=function(cond) {
-                    message(sprintf("An error occured while fitting the model. t=%d. q=%d\n", t, q));
-                    message(cond);
-                }
-            );
+    "CNY",
+    "CZK",
+    "DKK",
+
+    "EUR",
+    "GBP",
+    "HKD",
+
+    "HUF",
+    "JPY",
+    "KRW",
+
+    "MAD",
+    "MXN",
+    "NOK",
+
+    "NZD",
+    ## "PLN_SEK_Rates",
+    ## "SAR_SEK_Rates",
+
+    "SGD",
+    ## "THB_SEK_Rates",
+    ## "TRY_SEK_Rates",
+
+    "USD"
+    );
+
+
+X <- getAssetPrices("2014-01-01", "2016-04-01", currencies, 1, "rate", "localhost");
+# Y <- apply(log(X), MARGIN=2, FUN=diff);
+n <- dim(X)[1];
+m <- floor(n/2);
+p <- dim(X)[2];
+
+a <- 6;
+b <- 11;
+period <- 12;
+
+Y <- EMA(X[, b]/X[, a], period) * X[, a];
+dev <- X[, b] - Y;
+D <- rollapply(dev, width=10, FUN=sd, align="r", fill=NA);
+## T <- which(abs(dev) > 2*D);
+
+position <- list(a=0, b=0, status=0, t=NA);
+T <- rep(NA, n);
+cash <- 1;
+msg <- "";
+for (t in min(which(!is.na(D))):n) {
+    msg <- sprintf("%d", t);
+    if (position$status == 0) {
+        if (dev[t] < -2*D[t]) {
+            position$status <- 1;
+            position$t <- t;
+            position$a <- cash/2 / X[t, a];
+            position$b <- cash/2 / X[t, b];
+            T[t] <- 1;
+            msg <- sprintf("dev = %e, Long %s short %s cash %e status %d",
+                           dev[t], names[b], names[a], cash, position$status);
+        } else if (dev[t] > 2*D[t]){
+            position$status <- -1;
+            position$t <- t;
+            position$a <- cash/2 / X[t, a];
+            position$b <- cash/2 / X[t, b];
+            T[t] <- 1;
+            msg <- sprintf("dev = %e, Long %s short %s cash %e status %d",
+                           dev[t], names[a], names[b], cash, position$status);
         }
-        if (!has.model) {
-            J[t-window+1] <- ret[t+1, ] %*% E$vectors[, w];
-            message(sprintf("No AR model is found at t=%d.\n", t));
-            next;
+    } else {
+        if (position$status == 1 && dev[t] > 0) {
+            position$status <- 0;
+            cash <- -position$a * X[t, a] + position$b * X[t, b] + cash;
+            T[t] <- 0;
+            msg <- sprintf("Close. Cash %e status %d", cash, position$status);
+        } else if (position$status == -1 && dev[t] < 0) {
+            position$status <- 0;
+            cash <- -position$b * X[t, b] + position$a * X[t, a] + cash;
+            T[t] <- 0;
+            msg <- sprintf("Close. Cash %e status %d", cash, position$status);
         }
     }
-    J[t-window+1] <- ret[t+1, ] %*% E$vectors[, w];
-    tryCatch(
-        expr={
-            R <- predict(model,
-                         newdata=ret[(t-model$order+1):t, ]
-                         %*%
-                         E$vectors[, 1:q])$pred;
-            K[t-window+1] <- R[w];
-            F[t-window+1] <- price*exp(R[w]);
-        },
-        error=function(cond) {
-            message(sprintf("An error occured while predicting with the model. t=%d", t));
-            message(cond);
-        },
-        finally={
-            price <- price * exp(ret[t+1, ] %*% E$vectors[, w]);
-        }
-    );
-    
+    print(msg);
 }
-I <- which(is.na(K));
-K[I] = 0;
-F[I] <- F[I-1];
 
-plot(1:length(J), exp(cumsum(J)), type="l");
-lines(1:length(F), F, col="#00FF00");
-dens <- density(K-J);
-plot(dens$x, dens$y, type="l");
-
-
-## ## A <- computeCovCorr(eigen.ptfl);
-## ## B <- computeCovCorr(ret);
-
-## opt <- eigen.ptfl[,1:4];
-## M <- ar(opt);
-## M$order
-## ## acf(diff(opt, lag=20, differences=2), lag.max=50);
-
-## p <- 4;
-## model <- ar(eigen.ptfl[,1:p]);
-## L <- 10;
-## h <- 4;
-## predicted <- array(NA, dim=c(L, p, h));
-
-## for (i in 1:L) {
-##     x <- predict(model, newdata=eigen.ptfl[(n-model$order):(n-1), 1:p], n.ahead=h);
-##     predicted[i,,] <- t(x$pred);
-##     ## new <- eigen.ptfl[n,];
-##     ## x <- predict(model, newdata=new, n.ahead=h);
-## }
-
-## plot(1:L, predicted[,p,1], type="l", col="#00FF00");
-## lines(1:L, eigen.ptfl[(n-L+1):n, p], col="#000000");
+plot(1:n, X[, b], col="#0000FF", type="l");
+lines(1:n, Y, col="#00FF00");
+I1 <- which(T > 0);
+I2 <- which(T == 0);
+points(I1, X[I1, b]);
+points(I2, X[I2, b], lwd=2);
