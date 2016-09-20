@@ -1,5 +1,5 @@
 rm(list=ls());
-source("common/libxxie.r");
+source("/home/lxb353/hdrive/work/r/libxxie.r");
 
 currencies <- c(
     "AUD_SEK_Rates",
@@ -70,76 +70,16 @@ p <- dim(ret)[2];
 ## D <- eigen(cov(abs(ret)));
 ## F <- eigen(cov(ret^2));
 
-E <- eigen(cov(ret - mean(ret)));
-D <- eigen(cov(abs(ret) - mean(abs(ret))));
-F <- eigen(cov(ret^2 - mean(ret^2)));
+m <- floor(n/2);
+E <- eigen(cov(ret[1:m, ]));
+Y <- ret %*% E$vectors;
+X1 <- ret[1:m, 1];
+model <- lm(X1 ~ Y[(1:m), 1:4]);
+Z <- Y[(m+1):n, 1:4] %*% model$coefficients[2:5];
+S1 <- cumsum(Z);
+S2 <- cumsum(ret[(m+1):n, 1]);
+M <- lm(S2 ~ S1);
 
-## R <- (tail(ret, w) %*% E$vectors);
-## E <- eigen(cov(R));
-pdf("/tmp/FX_eigenvalues.pdf", width=14, height=14);
-plot(1:p, (E$values)/sum(E$values),
-     main=expression(lambda[(i)]/trace),
-     ylim=c(0, 0.8),
-     xlab=expression(i), ylab="", cex=2, pch=15);
-points(1:p, (D$values)/sum(D$values), col="#FF0000", cex=2, pch=16);
-points(1:p, (F$values)/sum(F$values), col="#00FF00", cex=2, pch=17);
+plot((m+1):n, M$fitted.values, type="l", ylim=c(min(c(S1, S2)), max(c(S1, S2))));
+lines((m+1):n, S2, col="#0000FF");
 
-## points(1:p, (E1$values)/sum(E1$values), col="#FF0000", cex=2, pch=15);
-## points(1:p, (D1$values)/sum(D1$values), col="#00FF00", cex=2, pch=16);
-## points(1:p, (F1$values)/sum(F1$values), col="#00FF00", cex=2, pch=17);
-
-legend("topright",
-       legend=c(expression(X - EX),
-       expression(abs(X) - E * abs(X)), expression(X^2 - E * X^2)),
-       col=c("#000000", "#FF0000", "#00FF00"),
-       pch=c(15, 16, 17), cex=2);
-grid();
-dev.off();
-
-pdf("/tmp/FX_eigenvectors.pdf", width=20, height=10);
-par(mfrow=c(3,6));
-for (i in 1:p) {
-    V <- E$vectors[, i];
-    k <- which.max(abs(V));
-    V <- V * sign(V[k]);
-    plot(1:p, V, main=sprintf("eigenvector[%d]", i),
-         xlab="i", ylab=expression(V[i]),
-         ylim=c(-1, 1), pch=15,
-         xaxt="n");
-    axis(side=1, at=1:p, labels=names, las=2);
-    
-    V <- D$vectors[, i];
-    k <- which.max(abs(V));
-    V <- V * sign(V[k]);
-    points(1:p, V, main=sprintf("eigenvector[%d]", i),
-           col="#FF0000", pch=16);
-
-    V <- F$vectors[, i];
-    k <- which.max(abs(V));
-    V <- V * sign(V[k]);
-    points(1:p, V, main=sprintf("eigenvector[%d]", i),
-           col="#00FF00", pch=17);
-    grid();
-}
-dev.off();
-
-## d <- 5;
-## ## R <- result$loadings;
-## par(mfrow=c(2,5));
-## for (i in 1:(d-1)) {
-##     for (j in (i+1):d) {
-##         ccf(R[, i], R[, j], type="correlation",
-##             lag.max=10,
-##             main=sprintf("%d & %d, window=%d", i, j, w),
-##             ylim=c(-0.18, 0.18));
-##         grid();
-##     }
-## }
-
-
-## x11();
-
-## par(mfrow=c(2,2));
-## for (i in 1:4) {
-##     acf(R[, i]);
-## }
