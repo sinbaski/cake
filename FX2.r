@@ -1,6 +1,6 @@
-library("nortest");
 rm(list=ls());
-source("/home/lxb353/hdrive/work/r/libxxie.r");
+require("fGarch");
+source("common/libxxie.r");
 
 currencies <- c(
     "AUD_SEK_Rates",
@@ -65,6 +65,7 @@ prices <- getAssetPrices("2010-01-04", "2016-04-01",
                          currencies, 1,
                          "rate", "localhost");
 ret <- diff(log(prices));
+warmup <- 400;
 n <- dim(ret)[1];
 p <- dim(ret)[2];
 h <- 20;
@@ -78,14 +79,24 @@ actions <- rep(0, n - lookback + 1);
 portfolio <- rep(NA, p);
 wealth <- 1;
 W <- rep(-1, n - lookback + 1);
-for (i in  lookback : n) {
-    if (i %% h == 0) {
+for (i in  (lookback + warmup) : n) {
+    if ((i - warmup) %% h == 0) {
         R <- ret[(i - lookback + 1):i, ];
         E <- eigen(cov(R));
         Y <- R %*% E$vectors;
         X <- R[, I];
         model <- lm(X ~ Y[, 1:N]);
         composition <- E$vectors[, 1:N] %*% model$coefficients[components + 1];
+
+        ## A GARCH(1, 1) model for each sequence. The innovations are correlated.
+        garch11 <- {};
+        res <- matrix(NA, nrow=i, ncol=p);
+        for (j in 1:p) {
+            M <- garchFit(~garch(1,1), data=(ret[1:i, j] - mean(ret[1]), trace=FALSE);
+            garch11 <- c(garch11, M);
+            res[, j] <- garch11[[j]]@residuals / garch11[[j]]$sigma.t;
+        }
+        C <- cor(res);
     }
     ## F <- ret[(i - h + 1):i, ] %*% E$vectors[, 1:N];
     ## Z <- F %*% model$coefficients[2:5];
@@ -126,23 +137,4 @@ for (i in  lookback : n) {
     W[i - lookback + 1] <- wealth;
 }
 J <- which(actions != 0);
-## l <- n - lookback + 1;
-## plot(1:l, cumsum(N), type="l");
-
-## E <- eigen(cov(ret));
-## D <- eigen(cov(abs(ret)));
-## F <- eigen(cov(ret^2));
-
-## m <- floor(n/2);
-## E <- eigen(cov(ret[1:m, ]));
-## Y <- ret %*% E$vectors;
-## X1 <- ret[1:m, 1];
-## model <- lm(X1 ~ Y[(1:m), 1:N]);
-## Z <- Y[(m+1):n, 1:N] %*% model$coefficients[2:5];
-## S1 <- cumsum(Z);
-## S2 <- cumsum(ret[(m+1):n, 1]);
-## M <- lm(S2 ~ S1);
-
-## plot((m+1):n, M$fitted.values, type="l", ylim=c(min(c(S1, S2)), max(c(S1, S2))));
-## lines((m+1):n, S2, col="#0000FF");
 
