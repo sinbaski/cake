@@ -113,6 +113,7 @@ for (i in  (lookback + warmup) : n) {
         X <- R[, I];
         model <- lm(X ~ Y[, 1:N] + 0);
         composition <- E$vectors[, 1:N] %*% model$coefficients[components];
+        daily.sd <- sd(model$residuals);
 
         ## A GARCH(1, 1)/ARCH(1) model for each sequence. The innovations are correlated.
         garch11 <- {};
@@ -141,13 +142,14 @@ for (i in  (lookback + warmup) : n) {
         }
         C <- cor(inno);
     }
+
     ## F <- ret[(i - h + 1):i, ] %*% E$vectors[, 1:N];
     ## Z <- F %*% model$coefficients[2:5];
     Z <- ret[(i - h + 1):i, ] %*% composition;
     S1 <- cumsum(Z);
     S2 <- cumsum(ret[(i - h + 1) : i, I]);
     D <- S2 - S1;
-    dev <- sd(D);
+    dev <- sqrt(h) * daily.sd;
 
     if (D[h] > 2 * dev && is.na(portfolio[1])) {
         actions[i - lookback + 1] <- -1;
