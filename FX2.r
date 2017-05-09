@@ -65,42 +65,45 @@ prices <- getAssetPrices("2010-01-04", "2016-04-01",
                          currencies, 1,
                          "rate", "localhost");
 ret <- diff(log(prices));
-warmup <- 400;
 n <- dim(ret)[1];
 p <- dim(ret)[2];
-h <- 20;
-m <- 3;
-lookback <- m*h;
 I <- 8;
 N <- 4;
+explanatory <- 1:p;
+## one month, 22 work days
+h <- 22;
+## regress on the past 2 years
+lookback <- h * 24;
 components <- 1:N;
+
 
 actions <- rep(0, n - lookback + 1);
 portfolio <- rep(NA, p);
 wealth <- 1;
 W <- rep(-1, n - lookback + 1);
-for (i in  (lookback + warmup) : n) {
-    if ((i - warmup) %% h == 0) {
-        R <- ret[(i - lookback + 1):i, ];
+garch11 <- vector("list", p);
+
+for (i in  lookback : n) {
+    if (i %% h == 0) {
+        R <- tail(ret[1:i, explanatory], lookback);
         E <- eigen(cov(R));
         Y <- R %*% E$vectors;
-        X <- R[, I];
+        X <- tail(ret[1:i, I], lookback);
         model <- lm(X ~ Y[, 1:N]);
-        composition <- E$vectors[, 1:N] %*% model$coefficients[components + 1];
+        composition <- E$vectors[, 1:N] %*% model$coefficients[1:N + 1];
 
         ## A GARCH(1, 1) model for each sequence. The innovations are correlated.
-        garch11 <- {};
-        res <- matrix(NA, nrow=i, ncol=p);
-        for (j in 1:p) {
-            M <- garchFit(~garch(1,1), data=(ret[1:i, j] - mean(ret[1]), trace=FALSE);
-            garch11 <- c(garch11, M);
-            res[, j] <- garch11[[j]]@residuals / garch11[[j]]$sigma.t;
+        res <- matrix(NA, nrow=lookback, ncol=N);
+        for (j in 1:N) {
+            gm <- garchFit(~garch(1,1), data=Y[, j], trace=FALSE);
+            garch11[[j]] <- gm;
+            res[, j] <- model@residuals / model@sigma.t;
         }
         C <- cor(res);
     }
     ## F <- ret[(i - h + 1):i, ] %*% E$vectors[, 1:N];
     ## Z <- F %*% model$coefficients[2:5];
-    Z <- ret[(i - h + 1):i, ] %*% composition;
+    Z <- tail(ret[1:i, explanatory], h) %*% composition;
     S1 <- cumsum(Z);
     S2 <- cumsum(ret[(i - h + 1) : i, I]);
     D <- S2 - S1;
