@@ -65,15 +65,17 @@ prices <- getAssetPrices("2010-01-04", "2016-04-01",
                          currencies, 1,
                          "rate", "localhost");
 ret <- diff(log(prices));
-warmup <- 400;
 n <- dim(ret)[1];
 p <- dim(ret)[2];
-h <- 20;
-m <- 3;
-lookback <- m*h;
 I <- 8;
 N <- 4;
+explanatory <- 1:p;
+## one month, 22 work days
+h <- 22;
+## regress on the past 2 years
+lookback <- h * 24;
 components <- 1:N;
+
 
 actions <- rep(0, n - lookback + 1);
 portfolio <- rep(NA, p);
@@ -145,7 +147,7 @@ for (i in  (lookback + warmup) : n) {
 
     ## F <- ret[(i - h + 1):i, ] %*% E$vectors[, 1:N];
     ## Z <- F %*% model$coefficients[2:5];
-    Z <- ret[(i - h + 1):i, ] %*% composition;
+    Z <- tail(ret[1:i, explanatory], h) %*% composition;
     S1 <- cumsum(Z);
     S2 <- cumsum(ret[(i - h + 1) : i, I]);
     D <- S2 - S1;
