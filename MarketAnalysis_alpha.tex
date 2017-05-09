@@ -1,0 +1,82 @@
+\documentclass{article}
+
+\RequirePackage[OT1]{fontenc}
+\RequirePackage{amsthm,amsmath}
+\RequirePackage[numbers]{natbib}
+\RequirePackage[colorlinks,citecolor=blue,urlcolor=blue]{hyperref}
+
+\usepackage{graphicx}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\input{../work/physics_common.tex}
+\title{Market Analysis and Alpha Generation}
+\author{Xie Xiaolei}
+\date{\today}
+\begin{document}
+\maketitle
+
+\section{A single asset}
+Let $P_t$ denote the closing prices of an asset, $\overline P_t$ the
+highest price, $\underline P_t$ the lowest price and $V_t$ the volume
+or turnover of the same asset. These are the data directly
+available. Define
+\begin{eqnarray*}
+  X_t &=& \ln P_{t} - \ln P_{t-1} \\
+  \overline X_t &=& \ln \overline P_{t} - \ln \overline P_{t-1} \\
+  \underline X_t &=& \ln \underline P_{t} - \ln \underline P_{t-1} \\
+  W_t &=& \ln V_t - \ln V_{t-1}
+\end{eqnarray*}
+
+\subsection{S\&P 500 and DJIA}
+There are significant correlations between $X_t$ and $W_t$, as is
+illustrated below for S\&P 500 and Dow Jones:
+\begin{figure}[!htb]
+\begin{minipage}{0.5\linewidth}
+  \includegraphics[width=\textwidth]{SP500_CloseVolume_ccf.pdf}
+\end{minipage}\hfill
+\begin{minipage}{0.5\linewidth}
+  \includegraphics[width=\textwidth]{DJIA_CloseVolume_ccf.pdf}
+\end{minipage}
+\caption{Return-Turnover correlation of S\&P 500 and DJIA. Data of 25
+  weeks (120 observations) ending on 2015-03-07 are used.}
+\end{figure}
+
+Siginificant correlations also exist between $X_t$ and $\overline X_t$
+as well as between $X_t$ and $\underline X_t$:
+\begin{figure}[!htb]
+\begin{minipage}{0.33\linewidth}
+  \includegraphics[width=\textwidth]{SP500_CloseHigh_ccf.pdf}
+\end{minipage}\hfill
+\begin{minipage}{0.33\linewidth}
+  \includegraphics[width=\textwidth]{SP500_CloseLow_ccf.pdf}
+\end{minipage}\hfill
+\begin{minipage}{0.33\linewidth}
+  \includegraphics[width=\textwidth]{SP500_HighLow_ccf.pdf}
+\end{minipage}
+\begin{minipage}{0.33\linewidth}
+  \includegraphics[width=\textwidth]{DJIA_CloseHigh_ccf.pdf}
+\end{minipage}\hfill
+\begin{minipage}{0.33\linewidth}
+  \includegraphics[width=\textwidth]{DJIA_CloseLow_ccf.pdf}
+\end{minipage}\hfill
+\begin{minipage}{0.33\linewidth}
+  \includegraphics[width=\textwidth]{DJIA_HighLow_ccf.pdf}
+\end{minipage}
+\caption{Close-High and Close-Low correlation of S\&P 500 and
+  DJIA. Data of 25 weeks (120 observations) ending on 2015-03-07 are
+  used.}
+\end{figure}
+
+The figures prompt a VARMA model to describe the data. Let
+\[
+\vec Y_t = (\overline X_t, X_t, \underline X_t, W_t)
+\]
+Then the model is
+\[
+\vec Y_t = \sum_{i=1}^p \Phi^i \vec Y_{t-i} + \sum_{j=1}^q \Theta^j \vec Z_{t-j}
+\]
+where each $\Phi^i$ and $\Theta^j$ is a $4 \times 4$ matrix. Their
+entries can be determined using e.g. the MTS package of R. The
+parameters are estimated using conditional maximum likelihood methods.
+\end{document}
