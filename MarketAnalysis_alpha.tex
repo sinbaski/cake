@@ -91,7 +91,7 @@ D_t = {X_t - \mathcal M_T X_t \over \mathcal M_T X_t}
 \]
 $D_t$ can be modelled as an Orstein-Uhlenbeck process:
 \[
-d D_t = \theta (\mu - X_{t-1}) + \sigma d W_t
+d D_t = \theta (\mu - X_{t-1})dt + \sigma d W_t
 \]
 The probability density function of $D_t$ is $f(x, t)$:
 \[
@@ -101,7 +101,7 @@ f(x, t) = {1
 }
 \exp \left\{
 - {
-  \left[ x - \mu - (D_0 - \mu) \right]^2
+  \left[ x - \mu - (D_0 - \mu)e^{-\theta t} \right]^2
   \over
   2 \sigma'^2 (1 - e^{2 \theta t})
 }
