@@ -16,7 +16,7 @@
 \begin{document}
 \maketitle
 
-\section{A single asset}
+\section{Single Asset: High-Low-Closing correlations for a single asset}
 Let $P_t$ denote the closing prices of an asset, $\overline P_t$ the
 highest price, $\underline P_t$ the lowest price and $V_t$ the volume
 or turnover of the same asset. These are the data directly
@@ -79,4 +79,44 @@ Then the model is
 where each $\Phi^i$ and $\Theta^j$ is a $4 \times 4$ matrix. Their
 entries can be determined using e.g. the MTS package of R. The
 parameters are estimated using conditional maximum likelihood methods.
+
+\section{Single asset: Deviations from a moving average}
+Define operator $M_T$:
+\[
+\mathcal M_T(X_t) = {1 \over T}\sum_{k = t - T}^{t - 1} X_k
+\]
+We study the deviations
+\[
+D_t = {X_t - \mathcal M_T X_t \over \mathcal M_T X_t}
+\]
+$D_t$ can be modelled as an Orstein-Uhlenbeck process:
+\[
+d D_t = \theta (\mu - X_{t-1}) + \sigma d W_t
+\]
+The probability density function of $D_t$ is $f(x, t)$:
+\[
+f(x, t) = {1
+  \over
+  \sqrt{2 \pi \sigma'^2 (1 - e^{2 \theta t})}
+}
+\exp \left\{
+- {
+  \left[ x - \mu - (D_0 - \mu) \right]^2
+  \over
+  2 \sigma'^2 (1 - e^{2 \theta t})
+}
+\right\}
+\]
+where $\sigma'^2 = \sigma^2/2\theta$. The Orstein-Uhlenbeck process is
+a stationary Gaussian Markov process and the only process satisfying
+these properties.
+
+To make trading decisions, we need to find the probability
+\[
+\P \left( \sup_{t_1 < t < t_2} D_t > u\right) \text{ and }
+\P \left( \inf_{t_1 < t < t_2} D_t < u\right)
+\]
+
 \end{document}
+
+
