@@ -44,9 +44,11 @@ for (t in (look.back + 1):(n-50)) {
     EY <- EMA(Y, n=ma.t)
     F <- ecdf(Y - EY);
     value <- X[t, 2] - predict(model, newdata=X[t, c(4,6)], n.ahead=1);
-    prob <- F(value);
+    ## prob <- F(value);
 
-    if ((prob > 1 - prob.trig && position %in% c(-1, 0)) || (prob > 0.45 && position == 1)) {
+    if ((value > quantile(F, 1 - prob.trig) && position %in% c(-1, 0)) ||
+        (value > quantile(F, 0.45) && position == 1)) {
+    ## if ((prob > 1 - prob.trig && position %in% c(-1, 0)) || (prob > 0.45 && position == 1)) {
         ## Short the portfolio
         action <- rbind(action, c(t, -1));
         if (position %in% c(0, -1)) {## Not in a position or in a short position
@@ -58,7 +60,8 @@ for (t in (look.back + 1):(n-50)) {
             holding <- rep(0, 3);
             position <- 0;
         }
-    }  else if ((prob < prob.trig && position %in% c(0, 1)) || (prob < 0.55 && position == -1)) {
+    } else if ((value < quantile(F, prob.trig) && position %in% c(0, 1)) ||
+               (value < quantile(F, 0.55) && position == -1)) {
         ## Long the portfolio
         action <- rbind(action, c(t, 1));
         if (position %in% c(0, 1)) {
@@ -66,9 +69,9 @@ for (t in (look.back + 1):(n-50)) {
             holding <- holding + c(1, -coef(model));
             cash[t] <- cash[t-1] - sum(c(1, -coef(model)) * X[t, c(2,4,6)]);
             position <- 1;
-        } else {
+        } else if (position == -1) {
             ## In a short position
-            cash[t] <- cash[t-1] - sum(holding * X[t, c(2,4,6)]);
+            cash[t] <- cash[t-1] + sum(holding * X[t, c(2,4,6)]);
             holding <- rep(0, 3);
             position <- 0;
         }
