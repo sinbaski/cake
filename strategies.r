@@ -6,10 +6,45 @@ require(xts);
 source("~/kkasi/r/libxxie.r");
 source("~/cake/libeix.r");
 
-
-trade.single <- function(S, lookback)
+sl281217 <- function(S, lookback)
 {
-    market <- rep("unknown", length(S));
+    holding <- matrix(NA, ncol=2, nrow=length(S));
+    ## Number of shares
+    holding[1:(lookback-1), 1] <- 0;
+    ## cash amount
+    holding[1:(lookback-1), 2] <- 1;
+    drift <- rep(NA, length(S));
+    exposure <- 0.5;
+    N <- 252;
+    for (t in lookback:length(S)) {
+        interval <- (t - lookback + 1):t;
+        bs <- fit.BS(S[interval]);
+        drift[t] <- bs$par[1];
+        if (t < N + lookback - 1) {
+            holding[t, ] <- holding[t-1, ];
+            next;
+        }
+        wealth <- holding[t-1, 1] * S[t] + holding[t-1, 2];
+        stopifnot(wealth > 0);
+        
+        emp <- ecdf(drift[(t-N+1):t]);
+        qf <- function(x) quantile(emp, x);
+        z <- drift[t];
+        if (z > qf(0.7) && z > 0) {
+            holding[t, 1] <- wealth * exposure / S[t];
+        } else if (z < qf(0.3) && z < 0) {
+            holding[t, 1] <- 0;
+        } else {
+            holding[t, 1] <- holding[t-1, 1];
+        }
+        holding[t, 2] <- holding[t-1, 2] - (holding[t, 1] - holding[t-1, 1]) * S[t];
+    }
+    return(holding);
+}
+
+## Say, 1 month
+sm281217 <- function(S, lookback)
+{
     holding <- matrix(NA, ncol=2, nrow=length(S));
     ## Number of shares
     holding[1:(lookback-1), 1] <- 0;
@@ -20,58 +55,20 @@ trade.single <- function(S, lookback)
         interval <- (t - lookback + 1):t;
         wealth <- holding[t-1, 1] * S[t] + holding[t-1, 2];
         stopifnot(wealth > 0);
-        mkt <- categorise.mkt(S[interval], lookback);
-
-        if (mkt$category == "up" && market[t-1] != "up") {
-            holding[t, 1] <- wealth * exposure / S[t];
-        } else if (mkt$category == "up" && market[t-1] == "up") {
-            holding[t, 1] <- holding[t-1];
-        } else if (mkt$category == "down" && market[t-1] != "down") {
-            holding[t, 1] <- -wealth * exposure / S[t];
-        } else if (mkt$category == "down" && market[t-1] == "down") {
-            holding[t, 1] <- holding[t-1];
-        } else if (mkt$category == "OU" && market[t-1] %in% c("up", "down")) {
-            holding[t] <- 0;
-        } else if (mkt$category == "OU") {
-            r <- mkt$par[1] + (log(S[t]) - mkt$par[1]) * exp(-mkt$par[2]) - log(S[t]);
-            r.sd <- mkt$par[3]/sqrt(2)/sqrt(mkt$par[2]) * sqrt(1 - exp(-2*mkt$par[2]));
-            if (r/r.sd > 1) {
-                holding[t, 1] <- wealth * exposure / S[t];
-            } else if (r/r.sd < -1) {
-                holding[t, 1] <- -wealth * exposure / S[t];
-            } else {
-                holding[t, 1] <- 0;
-            }
-        } else if (mkt$category == "unknown") {
-            holding[t, 1] <- 0;
-        }
-        holding[t, 2] <- holding[t-1, 2] - (holding[t, 1] - holding[t-1, 1]) * S[t];
-        market[t] <- mkt$category;
-    }
-    return(list(holding=holding, market=market));
-}
-
-trade.single.gb <- function(S, lookback)
-{
-    holding <- matrix(NA, ncol=2, nrow=length(S));
-    ## Number of shares
-    holding[1:(lookback-1), 1] <- 0;
-    ## cash amount
-    holding[1:(lookback-1), 2] <- 1;
-    exposure <- 0.5;
-    for (t in (lookback + 1):length(S)) {
-        interval <- (t - lookback + 1):t;
-        wealth <- holding[t-1, 1] * S[t] + holding[t-1, 2];
-        stopifnot(wealth > 0);
         
         bs <- fit.BS(S[interval]);
         expected <- S[t - lookback + 1] * exp((bs$par[1] - bs$par[2]^2/2)*(1:(lookback-1)) + bs$par[2]^2/2);
         res <- tail(S[interval], n=-1) - expected;
         dist.res <- fit.dist(res);
+        if (dist.res$bic == Inf) {
+            stop("Distribution fitting failed.");
+            holding[t, ] <- holding[t-1, ];
+            next;
+        }
         z <- tail(res, n=1);
-        ql <- dist.res$fun.q(0.05);
+        ql <- dist.res$fun.q(0.1);
         qm <- dist.res$fun.q(0.5);
-        qh <- dist.res$fun.q(0.95);
+        qh <- dist.res$fun.q(0.9);
         if (z < ql) {
             holding[t, 1] <- wealth * exposure / S[t];
         } else if (z > qh) {
@@ -81,20 +78,6 @@ trade.single.gb <- function(S, lookback)
         } else {
             holding[t, 1] <- holding[t-1, 1];
         }
-        
-        ## prob <- pcBS(S[t], lookback, S[t-lookback+1], bs$par);
-        ## probs[t] <- prob;
-        ## if (prob < 0.45) {
-        ##     ## stop("very low");
-        ##     holding[t, 1] <- wealth * exposure / S[t];
-        ## } else if (prob > 0.55) {
-        ##     ## stop("very high");
-        ##     holding[t, 1] <- -wealth * exposure / S[t];
-        ## } else if (prob <= 0.5 && holding[t-1, 1] < 0 || prob > 0.5 && holding[t-1, 1] > 0 ) {
-        ##     holding[t, 1] <- 0;
-        ## } else {
-        ##     holding[t, 1] <- holding[t-1, 1];
-        ## }
         holding[t, 2] <- holding[t-1, 2] - (holding[t, 1] - holding[t-1, 1]) * S[t];
     }
     return(holding);
