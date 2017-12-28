@@ -43,14 +43,16 @@ sl281217 <- function(S, lookback)
 }
 
 ## Say, 1 month
-sm281217 <- function(S, lookback)
+## S and spy must have the same length
+sm281217 <- function(S, lookback, spy)
 {
     holding <- matrix(NA, ncol=2, nrow=length(S));
     ## Number of shares
     holding[1:(lookback-1), 1] <- 0;
     ## cash amount
+    ## holding[1:(lookback-1), 2] <- exp(cumsum(c(0, diff(log(spy[1:(lookback-1)])))));
     holding[1:(lookback-1), 2] <- 1;
-    exposure <- 0.5;
+    exposure <- 0.7;
     for (t in (lookback):length(S)) {
         interval <- (t - lookback + 1):t;
         wealth <- holding[t-1, 1] * S[t] + holding[t-1, 2];
@@ -78,6 +80,7 @@ sm281217 <- function(S, lookback)
         } else {
             holding[t, 1] <- holding[t-1, 1];
         }
+        ## holding[t, 2] <- holding[t-1, 2] * (spy[t]/spy[t-1])- (holding[t, 1] - holding[t-1, 1]) * S[t];
         holding[t, 2] <- holding[t-1, 2] - (holding[t, 1] - holding[t-1, 1]) * S[t];
     }
     return(holding);
