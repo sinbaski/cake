@@ -218,12 +218,12 @@ MA <- function(x, span=1, fun=function(x) rep(1, length(x)))
 }
 
 ## Categorise the market at the absence of a clear trend
-categorise.mkt <- function(S, lookback)
+categorise.mkt <- function(S, lookback, confidence)
 {
     X <- log(S);
     ret <- diff(X);
     trend <- t.test(x=ret);
-    if (trend$p.value < 0.3) {
+    if (trend$p.value < confidence) {
         category <- if(trend$estimate > 0) "up" else "down";
         trend <- trend$estimate;
         return(list(category=category, trend=trend));
