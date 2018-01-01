@@ -120,19 +120,32 @@ sm281217 <- function(S, lookback, exposure=0.7)
     return(holding);
 }
 
+## S is a matrix of dimension n x p, consisting of p series.
 cm291217 <- function(S, T1, T2, exposure=0.7)
 {
+    n <- dim(S)[1];
+    p <- dim(S)[2];
     holding <- matrix(NA, ncol=2, nrow=length(S));
     ## Number of shares
     holding[1:(T1 + T2 - 1), 1] <- 0;
     ## cash amount
     ## holding[1:(lookback-1), 2] <- exp(cumsum(c(0, diff(log(spy[1:(lookback-1)])))));
     holding[1:(T1 + T2 - 1), 2] <- 1;
-    for (t in (lookback):length(S)) {
-        interval <- (t - lookback + 1):t;
+    for (t in (T1 + T2):n) {
         wealth <- holding[t-1, 1] * S[t] + holding[t-1, 2];
         stopifnot(wealth > 0);
+        I1 <- (t - T1 - T2 + 1):(t - T2);
+        I2 <- (t - T2 + 1):t;
+
+        ## Compute the covariance matrix
+        C <- cov(S[I1, ]);
+        E <- eigen(C);
+
+        ## The first eigenvector should be all-positive
+        ## Rotate it to be parallel to the S[t, ]
+        ## This way, all other eigenvectors are orthogonal to S[t, ].
         
+            
         bs <- fit.BS(S[interval]);
         expected <- S[t - lookback + 1] * exp((bs$par[1] - bs$par[2]^2/2)*(1:(lookback-1)) + bs$par[2]^2/2);
         res <- tail(S[interval], n=-1) - expected;
