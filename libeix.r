@@ -2,6 +2,17 @@ erf <- function(x) 2 * pnorm(x * sqrt(2)) - 1;
 last <- function(x) tail(x, n=1);
 first <- function(x) head(x, n=1);
 
+norm.vec <- function(x, p=2)
+{
+    sum(x^p)^(1/p);
+}
+
+proj.vec <- function(x, y)
+{
+    ## project vector x onto y
+    sum(x * y) / sum(y^2) * y;
+}
+
 
 fit.dist <- function(data)
 {
@@ -132,6 +143,40 @@ fit.BS <- function(ts)
     X <- diff(log(ts));
     sig.init <- sd(X);
     mu.init <- mean(X) + sig.init^2/2;
+    mu.lb <- min(mu.init/2, mu.init*2);
+    mu.ub <- max(mu.init/2, mu.init*2);
+    
+    fit <- tryCatch(
+        expr={
+            params <- optim(par=c(mu.init, sig.init),
+                            fn=function(arg) minus.log.lik(arg[1], arg[2]),
+                            ## method="L-BFGS-B",
+                            ## lower=c(mu.lb, sig.init/2),
+                            ## upper=c(mu.ub, sig.init*2),
+                            control=list(factr=0.001, maxit=500)
+                            );
+            if (params$convergence != 0) list(fitted=FALSE) else list(fitted=TRUE, par=params$par);
+        }, error=function(e) {
+            list(fitted=FALSE);
+        }
+    );
+    return(fit);
+}
+
+fit.BM <- function(ts)
+{
+    n <- length(ts);
+    minus.log.lik <- function(mu, sig)
+    {
+        s <- 0;
+        for (i in 1:length(ts)) {
+            s <- s + dnorm(ts[i], mean=i*mu, sd=sig * sqrt(i), log=TRUE);
+        }
+        -s;
+    }
+    X <- diff(ts);
+    sig.init <- sd(X);
+    mu.init <- mean(X);
     mu.lb <- min(mu.init/2, mu.init*2);
     mu.ub <- max(mu.init/2, mu.init*2);
     
