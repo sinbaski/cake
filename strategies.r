@@ -122,35 +122,155 @@ sm281217 <- function(S, lookback, exposure=0.7)
 
 ## holding is a 2 x (p+1) matrix.
 ## C is a p x 2 matrix. 1st row is the combination of time t-1
-sm020118 <- function(S, C, lookback, exposure, holding)
-{
-    p <- dim(S)[2];
-    t <- dim(S)[1];
-    X <- S %*% C[, 2];
-    bm <- fit.BM(X);
-    qm <- bm$par[1] * lookback;
-    z <- tail(X, n=1) - qm;
-    ql <- qnorm(0.1, mean=qm, sd=bm$par[2]);
-    qh <- qnorm(0.9, mean=qm, sd=bm$par[2]);
-    wealth <- S[t, ] * holding[1, 1:p] + holding[1, p+1];
-    stopifnot(wealth > 0);
-    nbr <- wealth * exposure / sum(S[t, ] * abs(C[, 2]));
+## sm020118 <- function(S, C, lookback, exposure, holding)
+## {
+##     p <- dim(S)[2];
+##     t <- dim(S)[1];
+##     X <- S %*% C[, 2];
+##     bm <- fit.BM(X);
+##     qm <- bm$par[1] * lookback;
+##     z <- tail(X, n=1) - qm;
+##     ql <- qnorm(0.1, mean=qm, sd=bm$par[2]);
+##     qh <- qnorm(0.9, mean=qm, sd=bm$par[2]);
+##     wealth <- S[t, ] * holding[1, 1:p] + holding[1, p+1];
+##     stopifnot(wealth > 0);
+##     nbr <- wealth * exposure / sum(S[t, ] * abs(C[, 2]));
     
-    if (sum(holding[1, 1:p] == 0) == p) {
-        if (z < ql) {
-            holding[2, 1:p] = nbr * C[, 2];
-            holding[2, p+1] <- holding[1, p+1] - sum((holding[2, 1:p] - holding[1, 1:p]) * S[t, ]);
-        } else if (z > qh) {
-            holding[2, 1:p] = -nbr * C[, 2];
-            holding[2, p+1] <- holding[1, p+1] - sum((holding[2, 1:p] - holding[1, 1:p]) * S[t, ]);
-        } else {
-            holding[2, ] <- holding[1, ];
-        }
-    } else {
-        ## adjust to the new direction
+##     if (sum(holding[1, 1:p] == 0) == p) {
+##         if (z < ql) {
+##             holding[2, 1:p] = nbr * C[, 2];
+##             holding[2, p+1] <- holding[1, p+1] - sum((holding[2, 1:p] - holding[1, 1:p]) * S[t, ]);
+##         } else if (z > qh) {
+##             holding[2, 1:p] = -nbr * C[, 2];
+##             holding[2, p+1] <- holding[1, p+1] - sum((holding[2, 1:p] - holding[1, 1:p]) * S[t, ]);
+##         } else {
+##             holding[2, ] <- holding[1, ];
+##         }
+##     } else {
+##         ## adjust to the new direction
         
-    }
+##     }
 
+##     return(holding);
+## }
+
+## S is a matrix of dimension n x p, consisting of p series.
+cm030118 <- function(S, T, lookback, exposure=0.7)
+{
+    n <- dim(S)[1];
+    p <- dim(S)[2];
+    holding <- matrix(NA, ncol=p+1, nrow=n);
+    ## Number of shares
+    holding[1:(T+lookback - 1), 1:p] <- 0;
+    ## cash amount
+    holding[1:(T+lookback - 1), p+1] <- 1;
+    ## Allocation to the portfolios
+    alloc <- rep(1/p, p);
+    for (t in (T+lookback):length(S)) {
+        wealth <- sum(holding[t-1, 1:p] * S[t, ]) + holding[t-1, p+1];
+        stopifnot(wealth > 0);
+        inc <- apply(S[(t-T-lookback+1):(t-lookback), ], MARGIN=2, FUN=diff);
+        C <- cov(inc);
+        E <- eigen(C);
+        Y <- inc %*% E$vectors;
+        mean.y <- apply(Y, MARGIN=2, FUN=mean);
+        comb <- matrix(NA, nrow=p, ncol=p);
+        comb[, 1] <- mean.y;
+        comb[, 1] <- comb[, 1]/norm.vec(comb[, 1]);
+        for (i in 2:p) {
+            v <- rep(0, p);
+            for (j in 1:(i-1)) {
+                v <- v + proj.vec(E$vectors[, i], comb[, j]);
+            }
+            comb[, i] <- E$vectors[, i] - v;
+            comb[, i] <- comb[, i]/norm.vec(comb[, i]);
+        }
+        comb[, p] <- comb[, p] * sign(det(comb));
+        ptfl <- E$vectors %*% comb / norm.vec(mean.y);
+        Z <- as.matrix(S[(t-lookback):t, ]) %*% ptfl;
+        H <- matrix(NA, nrow=p, ncol=p);
+        for (i in 1:p) {
+            loading <- proj.vec(holding[t-1, 1:p], ptfl[, i]);
+            k <- loading[1]/ptfl[1, i];
+            v2 <- sum(S[t, ] * abs(ptfl[, i]));
+            nbr <- wealth * exposure * alloc[i] / v2;
+            res <- tail(Z[, i] - Z[1, i], n=-1);
+            if (i == 1) {
+                res <- res - seq(1, length(res));
+            }
+            dist.res <- fit.dist(res);
+            ql <- dist.res$fun.q(0.1);
+            qm <- dist.res$fun.q(0.5);
+            qh <- dist.res$fun.q(0.9);
+            dev <- res[lookback];
+            if (i == 1) {
+                H[i, ] <- nbr * ptfl[, i];
+            } else if (dev < ql) {
+                H[i, ] <- nbr * ptfl[, i];
+            } else if (dev > qh) {
+                H[i, ] <- -nbr * ptfl[, i];
+            } else if (sign(dev) == sign(k)) {
+                H[i, ] <- rep(0, p);
+            }
+        }
+        holding[t, 1:p] <- apply(H, MARGIN=2, FUN=sum);
+        holding[t, p+1] <- holding[t-1, p+1] - sum((holding[t, 1:p] - holding[t-1, 1:p]) * S[t, ]);
+    }
+}
+
+## S is a matrix of dimension n x p, consisting of p series.
+cm040118 <- function(S, lookback, exposure=0.7, sharpe.min=0.45)
+{
+    n <- dim(S)[1];
+    p <- dim(S)[2];
+    holding <- matrix(NA, ncol=p+1, nrow=n);
+    ## Number of shares
+    holding[1:(T+lookback - 1), 1:p] <- 0;
+    ## cash amount
+    holding[1:(T+lookback - 1), p+1] <- 1;
+    for (t in (lookback):n) {
+        invested <- holding[t-1, 1:p] * S[t, ];
+        wealth <- sum(invested) + holding[t-1, p+1];
+        stopifnot(wealth > 0);
+        ret <- apply(log(S[(t-lookback+1):t, ]), MARGIN=2, FUN=diff);
+        C <- cov(ret);
+        E <- eigen(C);
+        scheme <- E$vectors;
+        ## s <- apply(E$vectors, FUN=sum, MARGIN=2);
+        ## scheme <- scheme %*% diag(1/s);
+        net <- apply(scheme, MARGIN=2, FUN=sum);
+        Y <- ret %*% scheme;
+        mu <- apply(Y, MARGIN=2, FUN=mean);
+        sharpe <- mu/sqrt(E$values);
+        H <- matrix(NA, nrow=p, ncol=p);
+        projections <- matrix(NA, nrow=p, ncol=p);
+        for (i in 1:p) {
+            projections[, i] <- proj.vec(invested, scheme[, i]);
+        }
+        exposed <- apply(abs(scheme), MARGIN=2, FUN=sum);
+        I <- which(abs(sharpe) > sharpe.min);
+        total <- sum(abs(sharpe[I]));
+        ## ratios <- abs(sharpe)[I]/sum(abs(sharpe)[I]);
+        for (i in 1:p) {
+            score <- abs(sharpe[i]);
+            if (score > sharpe.min) {
+                scale <- wealth * exposure * score/total / exposed[i];
+                shares <- as.matrix(scheme[, i]/S[t, ]);
+                H[i, ] <- scale * sign(mu[i]) * shares;
+            } else if (sum(abs(projections[, i])) > 0 && mu[i] != 0) {
+                inner <- sum(projections[, i] * scheme[, i]);
+                if (sign(inner) == sign(mu[i])) {
+                    H[i, ] <- as.matrix(projections[, i]/S[t, ]);
+                } else {
+                    H[i, ] <- rep(0, p);                    
+                }
+            } else {
+                H[i, ] <- rep(0, p);
+            }
+        }
+        holding[t, 1:p] <- apply(H, MARGIN=2, FUN=sum);
+        holding[t, p+1] <- holding[t-1, p+1] - sum((holding[t, 1:p] - holding[t-1, 1:p]) * S[t, ]);
+    }
     return(holding);
 }
 
@@ -171,10 +291,10 @@ cm291217 <- function(S, T1, T2, exposure=0.7)
         I2 <- (t - T2 + 1):t;
 
         ## Compute the covariance matrix
+        inc <- apply(S[I1, ], MARGIN=2, FUN=diff);
         C <- cov(S[I1, ]);
         E <- eigen(C);
 
-        comb <- E$vectors;
         comb <- matrix(NA, nrow=p, ncol=p);
         comb[, 1] <- unlist(S[t - T2, ])/norm.vec(S[t - T2, ]);
         for (i in 2:p) {
@@ -214,6 +334,7 @@ cm291217 <- function(S, T1, T2, exposure=0.7)
             holding[t, 2] <- holding[t-1, 2] - (holding[t, 1] - holding[t-1, 1]) * S[t];
         }
         return(holding);
+    }
 }
 
 ## mixer <- function(S, lookback, strats=list(sl281217, sm281217), alloc=c(0.5, 0.5))
@@ -249,14 +370,20 @@ S <- data[, -1];
 n <- dim(data)[1];
 lookback <- 20;
 
-holding <- sl281217(S, 30, 0.7);
-V1 <- holding[, 1] * S + holding[, 2];
+## holding <- sl281217(S, 30, 0.7);
+## V1 <- holding[, 1] * S + holding[, 2];
 
-holding <- sm281217(S, 30, 0.7);
-V2 <- holding[, 1] * S + holding[, 2];
+## holding <- sm281217(S, 30, 0.7);
+## V2 <- holding[, 1] * S + holding[, 2];
 
-holding <- sl291217(S, lookback, 0.7);
-V3 <- holding[, 1] * S + holding[, 2];
+## holding <- sl291217(S, lookback, 0.7);
+## V3 <- holding[, 1] * S + holding[, 2];
+
+p <- dim(S)[2];
+holding <- cm040118(S, 20, exposure=1);
+V <- apply(holding[, 1:p] * S, MARGIN=1, FUN=sum) + holding[, p+1];
+plot(xts(V, order.by=as.Date(data$tm)));
+
 
 m <- 1;
 n <- dim(data)[1];
