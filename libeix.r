@@ -59,6 +59,7 @@ fit.dist <- function(data)
                 bic=bic,
                 mu=params$par[1],
                 df=params$par[2],
+                sig=if (df > 2) sqrt(df/(df - 2)) else Inf,
                 fun.d=function(x) dt(x=x - params$par[1], df=params$par[2]),
                 fun.q=function(x) qt(p=x, df=params$par[2]) + params$par[1],
                 fun.p=function(x) pt(q=x - params$par[1], df=params$par[2])

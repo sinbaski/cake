@@ -1,5 +1,5 @@
-#ifndef trader_hpp
-#define trader_hpp
+#ifndef strategy_hpp
+#define strategy_hpp
 
 #include <exception>
 #include <string>
@@ -39,14 +39,14 @@ public:
     double mutate(double old);
 };
 
-class strat_param
+class variable_param
 {
 public:
     virtual void mutate(void) = 0;
-    virtual operator=(const strat_param &) = 0;
+    virtual operator=(const variable_param &) = 0;
 };
 
-class real_param : public strat_param
+class real_param : public variable_param
 {
 public:
     double value;
@@ -58,7 +58,7 @@ public:
 class strategy
 {
 public:
-    map<string, strat_param> parameters;
+    map<string, variable_param> parameters;
     virtual void update(void) = 0;
     virtual action_list act(void) = 0;
     const string race;
@@ -70,7 +70,7 @@ protected:
     SAConnection con;
 public:
     mikosch_strat(void);
-    mikosch_strat(const map<string, strat_param>& parameters);
+    mikosch_strat(const map<string, variable_param>& parameters);
 };
 
 #endif

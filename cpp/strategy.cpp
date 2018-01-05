@@ -8,7 +8,7 @@ mikosch_strat::mikosch_strat(void)
 {
 }
 
-mikosch_strat::mikosch_strat(const map<string, strat_param>& parameters)
+mikosch_strat::mikosch_strat(const map<string, variable_param>& parameters)
     :parameters(parameters), race(string("mikosch"))
 {
 }
