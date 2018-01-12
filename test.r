@@ -1,8 +1,6 @@
 rm(list=ls());
 graphics.off();
 require(RMySQL);
-require(fGarch);
-require(xts);
 source("~/kkasi/r/libxxie.r");
 source("~/cake/libeix.r");
 
@@ -10,7 +8,7 @@ factor.algo <- function(t, params, holding)
 {
     ## params$stocks: a list of column indices of S, indicating the stocks to trade
     ## holding must have the length as params    
-    p <- length(holding);
+    p <- dim(prices)[2];
     invested <- holding * prices[t, params$stocks];
     wealth <- sum(invested) + holding[p+1];
     stopifnot(wealth > 0);
@@ -18,29 +16,30 @@ factor.algo <- function(t, params, holding)
     C <- cov(ret);
     E <- eigen(C);
     scheme <- E$vectors;
-    ## s <- apply(E$vectors, FUN=sum, MARGIN=2);
-    ## scheme <- scheme %*% diag(1/s);
-    net <- apply(scheme, MARGIN=2, FUN=sum);
     Y <- ret %*% scheme;
-    mu <- apply(Y, MARGIN=2, FUN=mean);
-    sharpe <- mu/sqrt(E$values);
+    result <- matrix(NA, nrow=p, ncol=2);
+    for (i in 1:p) {
+        tt <- t.test(Y[, i]);
+        result[i, 1] <- tt$estimate;
+        result[i, 2] <- tt$p.value;
+    }
     H <- matrix(NA, nrow=p, ncol=p);
     projections <- matrix(NA, nrow=p, ncol=p);
     for (i in 1:p) {
         projections[, i] <- proj.vec(invested, scheme[, i]);
     }
     exposed <- apply(abs(scheme), MARGIN=2, FUN=sum);
-    I <- which(abs(sharpe) > params$sharpe.min);
-    total <- sum(abs(sharpe[I]));
+    I <- which(result[, 2] < params$confidence);
+    total <- sum(abs(result[I, 1]));
     for (i in 1:p) {
-        score <- abs(sharpe[i]);
-        if (score > params$sharpe.min) {
+        score <- abs(result[i, 1]);
+        if (result[i, 2] < params$confidence) {
             scale <- wealth * params$exposure * score/total / exposed[i];
             shares <- as.matrix(scheme[, i]/prices[t, ]);
-            H[i, ] <- scale * sign(mu[i]) * shares;
-        } else if (sum(abs(projections[, i])) > 0 && mu[i] != 0) {
+            H[i, ] <- scale * sign(result[i, 1]) * shares;
+        } else if (sum(abs(projections[, i])) > 0 && score != 0) {
             inner <- sum(projections[, i] * scheme[, i]);
-            if (sign(inner) == sign(mu[i])) {
+            if (sign(inner) == sign(result[i, 1])) {
                 H[i, ] <- as.matrix(projections[, i]/prices[t, ]);
             } else {
                 H[i, ] <- rep(0, p);                    
@@ -51,14 +50,9 @@ factor.algo <- function(t, params, holding)
     }
     shares <- rep(NA, p+1);
     shares[1:p] <- apply(H, MARGIN=2, FUN=sum);
-    shares[p+1] <- holding[p+1] - sum((shares[1:p] - hold[1:p]) * prices[t, ]);
+    shares[p+1] <- holding[p+1] - sum((shares[1:p] - holding[1:p]) * prices[t, ]);
     holding <- shares;
     return(holding);
-}
-
-make.strat <- function(fun, param, S)
-{
-    list()
 }
 
 database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
@@ -83,57 +77,78 @@ log.mutation <- function(x, sig)
     exp(log(x) + rnorm(n=1, mean=0, sd=sig));
 }
 
-strats <- vector("list", length=1000);
+load(file="./strategies_population.RData");
 
 
+## strats <- vector("list", length=4000);
+## for (i in 1:length(strats)) {
+##     stocks <- 1:p;
+##     lookback <- runif(1, min=15, max=25);
+##     confidence <- runif(1, min=0.05, max=0.3);
+##     exposure <- runif(1, min=0.5, max=0.9);
+##     params <- list(stocks=stocks, lookback=round(lookback),
+##                    confidence=confidence, exposure=exposure
+##                    );
+##     holding <- c(rep(0, p), 1);
+##     strats[[i]] <- list(fun=factor.algo, params=params, holding=holding);
+## }
 
-for (i in 1:length(strats)) {
-    stocks <- 1:dim(prices)[2];
-    lookback <- runif(1, min=15, max=25);
-    sharpe.min <- runif(1, min=0.3, max=0.6);
-    exposure <- runif(1, min=0.5, max=0.9);
-    params <- list(stocks=stocks, lookback=round(lookback),
-                   sharpe.min=sharpe.min, exposure=exposure
-                   );
-    holding <- c(rep(0, dim(prices)[2]), 1);
-    strats[i] <- list(fun=factor.algo, params=params, holding=holding);
-}
+## sys.holding <- matrix(NA, nrow=dim(prices)[1], ncol=dim(prices)[2]+1);
 
 t0 <- 25;
-for (t in t0:dim(prices)[1]) {
+N <- 10;
+## for (t in t0:dim(prices)[1]) {
+for (t in t0:80) {
     holding <- matrix(NA, nrow=length(strats), ncol=p+1);
     for (i in 1:length(strats)) {
-        holding[i, ] <- strats[i]$fun(t, params, strats[i]$holding);
+        holding[i, ] <- strats[[i]]$fun(t, strats[[i]]$params, strats[[i]]$holding);
     }
-    if (t == t0) {
+    wealths <- apply(holding[, 1:p] %*% t(prices[t, ]), MARGIN=1, FUN=sum) + holding[, p+1];
+    if (t - t0 <= 2*N || (t - t0) %% N != 0) {
         for (i in 1:length(strats)) {
-            strats[i]$holding <- holding[i, ];
+            strats[[i]]$holding <- holding[i, ];
         }
+        sys.holding[t, ] <- apply(holding, MARGIN=2, FUN=sum);
         next;
     }
-    wealth.2 <- apply(holding[, -1] %*% t(prices[t, ]), MARGIN=1, FUN=sum) + holding[, p+1];
-    wealth.1 <- apply(strats$holding[, -1] %*% t(prices[t-1, ]), MARGIN=1, FUN=sum) + strats$holding[, p+1];
-    scores <- wealth.2/wealth.1 - 1;
-    ## may be too costly to compute
-    ## res <- uniroot(f=function(x) mean(exp(x * scores)) - 1, interval=c(0.1, 5), tol=0.01);
-    winner <- rdiscrete(length(strats), probs=scores, values=1:length(strats));
-    loser <- setdiff(1:length(strats), winner);
-    ## How do we re-distribute the assets of the losers?
-    strats <- strats[winner];
+    stopifnot(min(wealths) > 0);
 
-    ## Now mutate the parameters
-    for (i in 1:length(strats)) {
-        strats[i]$params$lookback <- round(log.mutation(strats[i]$params$lookback, 0.1));
-        strats[i]$params$exposure <- round(log.mutation(strats[i]$params$exposure, 0.1));
-        strats[i]$params$sharpe.min <- round(log.mutation(strats[i]$params$exposure, 0.1));
+    ## who survive to the next period?
+    mu.w <- mean(wealths);
+    scores <- 2^((wealths/mu.w - 1)/0.01);
+    scores <- scores/sum(scores);
+    winners <- sample(1:length(strats), size=length(strats),
+                      prob=scores, replace=TRUE);
+    worth <- 0;
+    for (i in winners) {
+        worth <- worth + sum(holding[i, 1:p] * prices[t, ]) + holding[i, p+1];
     }
-    
-    
+    k <- sum(wealths)/worth;
+    holding[winners, ] <- k * holding[winners, ];
+    holding <- holding[winners, ];
+    strats <- strats[winners];
+    sys.holding[t, ] <- apply(holding, MARGIN=2, FUN=sum);
+
+    ## Survivors mutate
+    values <- apply(prices[(t-N):t, ] * sys.holding[(t-N):t, 1:p],
+                    MARGIN=1, FUN=sum) + sys.holding[(t-N):t, p+1];
+    ret <- diff(log(values));
+    sig <- 0.075 * exp(-mean(ret));
+    for (i in 1:length(strats)) {
+        strats[[i]]$holding <- holding[i, ];
+        l <- round(log.mutation(strats[[i]]$params$lookback, sig));
+        l <- min(t, max(l, 5));
+        strats[[i]]$params$lookback <- l;
+        strats[[i]]$params$exposure <- log.mutation(strats[[i]]$params$exposure, sig);
+        strats[[i]]$params$confidence <- log.mutation(strats[[i]]$params$confidence, sig);
+    }
+
 }
+w <- apply(holding[, 1:p] %*% t(prices[t, ]), MARGIN=1, FUN=sum) + holding[, p+1];
 
-
-
-
-
+strat.lookback <- rep(NA, length(strats));
+for (i in 1:length(strats)) {
+    strat.lookback[i] <- strats[[i]]$param$lookback;
+}
 
 
