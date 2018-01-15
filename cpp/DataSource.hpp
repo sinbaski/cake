@@ -12,16 +12,15 @@ using namespace Rcpp;
 class DataSource
 {
 public:
-    virtual NumericMatrix fetch(const vector<string> &symbols) = 0;
-    virtual NumericMatrix fetch(const vector<int> &symbol_indices) = 0;
+    string t1; // time of the least recent buffered record
+    string t2; // time of the most recent buffered record
+    virtual NumericMatrix fetch(const vector<int> &symbol_indices, string t1, string t2) = 0;
 };
 
 class BufferedMySQL : public DataSource
 {
-public:
     BufferedMySQL(string username, string passwd, string host, string database);
-    NumericMatrix fetch(const vector<string> &symbols);
-    NumericMatrix fetch(const vector<int> &symbol_indices);
+    NumericMatrix fetch(const vector<int> &symbol_indices, string t1, string t2);
 };
 
 

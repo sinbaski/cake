@@ -1,6 +1,7 @@
 #include "DataSource.hpp"
 
 BufferBufferedMySQL::BufferedMySQL(string username, string passwd, string database, string host)
+    : t1()
 {
     RInside R = RInside.instance();
     string stmt = "rm(list=ls()); source(\"./queryDatabase.r\"); ";

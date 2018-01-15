@@ -4,9 +4,8 @@
 #include <exception>
 #include <string>
 #include <vector>
-#include <SQLAPI.h> // main SQLAPI++ header
-
-#include "DataSource.hpp"
+#include <RInside.h>
+#include "Platform.hpp"
 
 using namespace std;
 
@@ -63,14 +62,14 @@ public:
     map<string, variable_param> parameters;
     // Called when new data come in
     virtual void update(void) = 0;
-    virtual action_list act(void) = 0;
+    virtual action_list act(const RInside&) = 0;
     const string race;
 };
 
 class mikosch_strat : public strategy
 {
 protected:
-    DataSource ds;
+    Platform platform;
 public:
     mikosch_strat(void);
     mikosch_strat(const map<string, variable_param>& parameters);
