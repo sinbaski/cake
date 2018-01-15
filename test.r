@@ -77,26 +77,27 @@ log.mutation <- function(x, sig)
     exp(log(x) + rnorm(n=1, mean=0, sd=sig));
 }
 
-load(file="./strategies_population.RData");
+## load(file="./strategies_population.RData");
 
 
-## strats <- vector("list", length=4000);
-## for (i in 1:length(strats)) {
-##     stocks <- 1:p;
-##     lookback <- runif(1, min=15, max=25);
-##     confidence <- runif(1, min=0.05, max=0.3);
-##     exposure <- runif(1, min=0.5, max=0.9);
-##     params <- list(stocks=stocks, lookback=round(lookback),
-##                    confidence=confidence, exposure=exposure
-##                    );
-##     holding <- c(rep(0, p), 1);
-##     strats[[i]] <- list(fun=factor.algo, params=params, holding=holding);
-## }
+strats <- vector("list", length=4000);
+for (i in 1:length(strats)) {
+    stocks <- 1:p;
+    lookback <- runif(1, min=15, max=25);
+    confidence <- runif(1, min=0.05, max=0.3);
+    exposure <- runif(1, min=0.5, max=0.9);
+    params <- list(stocks=stocks, lookback=round(lookback),
+                   confidence=confidence, exposure=exposure
+                   );
+    holding <- c(rep(0, p), 1);
+    strats[[i]] <- list(fun=factor.algo, params=params, holding=holding);
+}
 
-## sys.holding <- matrix(NA, nrow=dim(prices)[1], ncol=dim(prices)[2]+1);
+sys.holding <- matrix(NA, nrow=dim(prices)[1], ncol=dim(prices)[2]+1);
 
 t0 <- 25;
 N <- 10;
+require(parallel);
 ## for (t in t0:dim(prices)[1]) {
 for (t in t0:80) {
     holding <- matrix(NA, nrow=length(strats), ncol=p+1);
@@ -115,7 +116,7 @@ for (t in t0:80) {
 
     ## who survive to the next period?
     mu.w <- mean(wealths);
-    scores <- 2^((wealths/mu.w - 1)/0.01);
+    scores <- 10^((wealths/mu.w - 1)/0.01);
     scores <- scores/sum(scores);
     winners <- sample(1:length(strats), size=length(strats),
                       prob=scores, replace=TRUE);
