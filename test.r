@@ -1,7 +1,6 @@
 rm(list=ls());
 graphics.off();
 require(RMySQL);
-source("~/kkasi/r/libxxie.r");
 source("~/cake/libeix.r");
 
 factor.algo <- function(t, params, holding)
@@ -56,7 +55,7 @@ factor.algo <- function(t, params, holding)
 }
 
 database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
-                     dbname='market', host="localhost");
+                     dbname='market', host="192.168.154.1");
 
 stmt <- paste(
 "select spy_daily.tm as tm, spy_daily.closing as spy, pep_daily.closing as pep, ko_daily.closing as ko,",
@@ -97,59 +96,64 @@ sys.holding <- matrix(NA, nrow=dim(prices)[1], ncol=dim(prices)[2]+1);
 
 t0 <- 25;
 N <- 10;
-require(parallel);
+require(foreach);
+require(doMC);
+
+registerDoMC(detectCores());
+cl <- makeCluster(detectCores());
 ## for (t in t0:dim(prices)[1]) {
-for (t in t0:80) {
-    holding <- matrix(NA, nrow=length(strats), ncol=p+1);
-    for (i in 1:length(strats)) {
-        holding[i, ] <- strats[[i]]$fun(t, strats[[i]]$params, strats[[i]]$holding);
+for (tm in t0:250) {
+    cat(sprintf("At time %d\n", tm));
+    holding <- foreach(i=1:length(strats), .combine=rbind) %dopar% {
+        strats[[i]]$fun(tm, strats[[i]]$params, strats[[i]]$holding);
     }
-    wealths <- apply(holding[, 1:p] %*% t(prices[t, ]), MARGIN=1, FUN=sum) + holding[, p+1];
-    if (t - t0 <= 2*N || (t - t0) %% N != 0) {
+    if (tm - t0 <= 2*N || (tm - t0) %% N != 0) {
         for (i in 1:length(strats)) {
             strats[[i]]$holding <- holding[i, ];
         }
-        sys.holding[t, ] <- apply(holding, MARGIN=2, FUN=sum);
+        sys.holding[tm, ] <- parApply(cl, holding, MARGIN=2, FUN=sum);
         next;
     }
     stopifnot(min(wealths) > 0);
 
+    wealths <- parApply(cl, holding[, 1:p] %*% t(prices[tm, ]), MARGIN=1, FUN=sum) + holding[, p+1];
     ## who survive to the next period?
     mu.w <- mean(wealths);
-    scores <- 10^((wealths/mu.w - 1)/0.01);
+    scores <- 4^((wealths/mu.w - 1)/0.01);
     scores <- scores/sum(scores);
     winners <- sample(1:length(strats), size=length(strats),
                       prob=scores, replace=TRUE);
     worth <- 0;
     for (i in winners) {
-        worth <- worth + sum(holding[i, 1:p] * prices[t, ]) + holding[i, p+1];
+        worth <- worth + sum(holding[i, 1:p] * prices[tm, ]) + holding[i, p+1];
     }
     k <- sum(wealths)/worth;
     holding[winners, ] <- k * holding[winners, ];
     holding <- holding[winners, ];
     strats <- strats[winners];
-    sys.holding[t, ] <- apply(holding, MARGIN=2, FUN=sum);
+    sys.holding[tm, ] <- parApply(cl, holding, MARGIN=2, FUN=sum);
 
     ## Survivors mutate
-    values <- apply(prices[(t-N):t, ] * sys.holding[(t-N):t, 1:p],
-                    MARGIN=1, FUN=sum) + sys.holding[(t-N):t, p+1];
+    values <- parApply(cl, prices[(tm-N):tm, ] * sys.holding[(tm-N):tm, 1:p],
+                       MARGIN=1, FUN=sum) + sys.holding[(tm-N):tm, p+1];
     ret <- diff(log(values));
     sig <- 0.075 * exp(-mean(ret));
     for (i in 1:length(strats)) {
         strats[[i]]$holding <- holding[i, ];
         l <- round(log.mutation(strats[[i]]$params$lookback, sig));
-        l <- min(t, max(l, 5));
+        l <- min(tm, max(l, 5));
         strats[[i]]$params$lookback <- l;
         strats[[i]]$params$exposure <- log.mutation(strats[[i]]$params$exposure, sig);
         strats[[i]]$params$confidence <- log.mutation(strats[[i]]$params$confidence, sig);
     }
 
 }
-w <- apply(holding[, 1:p] %*% t(prices[t, ]), MARGIN=1, FUN=sum) + holding[, p+1];
+stopCluster(cl);
 
-strat.lookback <- rep(NA, length(strats));
-for (i in 1:length(strats)) {
-    strat.lookback[i] <- strats[[i]]$param$lookback;
-}
+w <- parApply(cl, holding[, 1:p] %*% t(prices[tm, ]), MARGIN=1, FUN=sum) + holding[, p+1];
+
+lookback <- sapply(1:length(strats), FUN=function(i) strats[[i]]$param$lookback)
+exposure <- sapply(1:length(strats), FUN=function(i) strats[[i]]$param$exposure)
+confidence <- sapply(1:length(strats), FUN=function(i) strats[[i]]$param$confidence)
 
 
