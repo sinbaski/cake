@@ -1,6 +1,13 @@
+require(sde);
+
 erf <- function(x) 2 * pnorm(x * sqrt(2)) - 1;
 last <- function(x) tail(x, n=1);
 first <- function(x) head(x, n=1);
+
+dir.cos <- function(x, y)
+{
+    sum(x * y)/sqrt(sum(x^2) * sum(y^2));
+}
 
 norm.vec <- function(x, p=2)
 {
@@ -42,30 +49,30 @@ fit.dist <- function(data)
     }
 
     ## non-central t distribution
-    nu <- 2*sig^2/(sig^2 - 1);
-    df <- if (nu > 0) nu else 1.5;
-    params <- optim(
-        fn=function(arg) -sum(dt(x=data - arg[1], df=arg[2], log=TRUE)),
-        par=c(mu, df),
-        lower=c(min(data), 1),
-        upper=c(max(data), 10),
-        method="L-BFGS-B"
-    );
-    if (params$convergence == 0) {
-        bic <- 2*log(length(data)) + 2 * params$value;
-        if (fit$bic > bic) {
-            fit <- list(
-                dist="t",
-                bic=bic,
-                mu=params$par[1],
-                df=params$par[2],
-                sig=if (df > 2) sqrt(df/(df - 2)) else Inf,
-                fun.d=function(x) dt(x=x - params$par[1], df=params$par[2]),
-                fun.q=function(x) qt(p=x, df=params$par[2]) + params$par[1],
-                fun.p=function(x) pt(q=x - params$par[1], df=params$par[2])
-            );
-        }
-    }
+    ## nu <- 2*sig^2/(sig^2 - 1);
+    ## df <- if (nu > 0) nu else 1.5;
+    ## params <- optim(
+    ##     fn=function(arg) -sum(dt(x=data - arg[1], df=arg[2], log=TRUE)),
+    ##     par=c(mu, df)
+    ##     ## lower=c(min(data), 1),
+    ##     ## upper=c(max(data), 10),
+    ##     ## method="L-BFGS-B"
+    ## );
+    ## if (params$convergence == 0) {
+    ##     bic <- 2*log(length(data)) + 2 * params$value;
+    ##     if (fit$bic > bic) {
+    ##         fit <- list(
+    ##             dist="t",
+    ##             bic=bic,
+    ##             mu=params$par[1],
+    ##             df=params$par[2],
+    ##             sig=if (df > 2) sqrt(df/(df - 2)) else Inf,
+    ##             fun.d=function(x) dt(x=x - params$par[1], df=params$par[2]),
+    ##             fun.q=function(x) qt(p=x, df=params$par[2]) + params$par[1],
+    ##             fun.p=function(x) pt(q=x - params$par[1], df=params$par[2])
+    ##         );
+    ##     }
+    ## }
     return(fit);
 }
 
@@ -136,27 +143,37 @@ fit.OU <- function(ts)
 
 fit.BS <- function(ts)
 {
-    require(sde);
     minus.log.lik <- function(mu, sig)
     {
         -sum(dcBS(x=tail(ts, n=-1), Dt=1, x0=head(ts, n=-1), theta=c(mu, sig), log=TRUE))
     }
-    X <- diff(log(ts));
+    ## X <- diff(log(ts));
+    X <- tail(ts, n=-1)/head(ts, n=-1) - 1;
     sig.init <- sd(X);
     mu.init <- mean(X) + sig.init^2/2;
-    mu.lb <- min(mu.init/2, mu.init*2);
-    mu.ub <- max(mu.init/2, mu.init*2);
-    
     fit <- tryCatch(
         expr={
             params <- optim(par=c(mu.init, sig.init),
                             fn=function(arg) minus.log.lik(arg[1], arg[2]),
-                            ## method="L-BFGS-B",
-                            ## lower=c(mu.lb, sig.init/2),
-                            ## upper=c(mu.ub, sig.init*2),
                             control=list(factr=0.001, maxit=500)
                             );
-            if (params$convergence != 0) list(fitted=FALSE) else list(fitted=TRUE, par=params$par);
+            if (params$convergence != 0)
+                list(fitted=FALSE)
+            else list(
+                     fitted=TRUE, par=params$par,
+                     E.ret=function(tm) {
+                         (params$par[1] - params$par[2]^2/2) * tm
+                     },
+                     sd.ret=function(tm) {
+                         params$par[2] * sqrt(tm)
+                     },
+                     E.proc=function(S0, tm) {
+                         S0 * exp(params$par[1]* tm)
+                     },
+                     sd.proc=function(S0, tm) {
+                         S0 * exp(params$par[1] * tm) * sqrt(exp(params$par[2]^2 * tm) - 1)
+                     }
+                 );
         }, error=function(e) {
             list(fitted=FALSE);
         }
