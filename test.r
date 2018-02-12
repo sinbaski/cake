@@ -105,6 +105,8 @@ algo.t.test <- function(tm, params, Y, E, alloc)
     H <- matrix(NA, nrow=p, ncol=p);
     flag <- FALSE;
     for (i in 1:p) {
+        r <- cor(head(Y[, i], n=-1), tail(Y[, i], n=-1));
+        
         mu <- mean(Y[, i]);
         sig <- if (E$values[i] > 0) sqrt(E$values[i]) else NaN;
         if (is.nan(sig) || abs(mu)/sig > 2) {
@@ -143,50 +145,50 @@ algo.t.test <- function(tm, params, Y, E, alloc)
     return(shares);
 }
 
-algo.bs <- function(tm, params, Y, E, alloc)
-{
-    p <- dim(prices)[2];
-    ## £ exposed for every £ invested, i.e. price for each unit of the portfolio
-    leverage <- apply(abs(E$vectors), MARGIN=2, FUN=sum);
-    ## More diverse allocation schemes score higher.
-    scheme.score <- leverage/p;
+## algo.bs <- function(tm, params, Y, E, alloc)
+## {
+##     p <- dim(prices)[2];
+##     ## £ exposed for every £ invested, i.e. price for each unit of the portfolio
+##     leverage <- apply(abs(E$vectors), MARGIN=2, FUN=sum);
+##     ## More diverse allocation schemes score higher.
+##     scheme.score <- leverage/p;
 
-    sharpe <- rep(NA, p);
-    H <- matrix(NA, nrow=p, ncol=p);
-    flag <- FALSE;
-    for (i in 1:p) {
-        sig <- if (E$values[i] > 0) sqrt(E$values[i]) else NaN;
-        n <- params$T1;
-        S <- rep(NA, n);
-        S[1] <- 1;
-        for (j in 1:(n-1)) {
-            S[j+1] <- S[j] * (1 + Y[j, i]);
-        }
-        bs <- fit.BS(S);
-        if (!bs$fitted) {
-            sharpe[i] <- 0;
-            next;
-        }
-        ## If T2 = 1, we have a pure momentum strategy
-        sharpe[i] <- bs$E.proc(S[n - params$T2 + 1], params$T2)/S[n] - 1;
-        ## sig <- bs$sd.proc(S[n - params$T2 + 1], params$T2)/S[n];
-        sharpe[i] <- sharpe[i]/sig;
-        flag <- TRUE;
-    }
-    if (!flag) return(rep(0, p));
+##     sharpe <- rep(NA, p);
+##     H <- matrix(NA, nrow=p, ncol=p);
+##     flag <- FALSE;
+##     for (i in 1:p) {
+##         sig <- if (E$values[i] > 0) sqrt(E$values[i]) else NaN;
+##         n <- params$T1;
+##         S <- rep(NA, n);
+##         S[1] <- 1;
+##         for (j in 1:(n-1)) {
+##             S[j+1] <- S[j] * (1 + Y[j, i]);
+##         }
+##         bs <- fit.BS(S);
+##         if (!bs$fitted) {
+##             sharpe[i] <- 0;
+##             next;
+##         }
+##         ## If T2 = 1, we have a pure momentum strategy
+##         sharpe[i] <- bs$E.proc(S[n - params$T2 + 1], params$T2)/S[n] - 1;
+##         ## sig <- bs$sd.proc(S[n - params$T2 + 1], params$T2)/S[n];
+##         sharpe[i] <- sharpe[i]/sig;
+##         flag <- TRUE;
+##     }
+##     if (!flag) return(rep(0, p));
 
-    scores <- abs(sharpe) * scheme.score;
-    normalizer <- sum(scores);
-    ## £ to invest in eigen portfolio i
-    to.expose <- scores / normalizer;
-    for (i in 1:p) {
-        H[i, ] <- sign(sharpe[i]) * (to.expose[i]/leverage[i]) * E$vectors[, i] / prices[tm, ];
-    }
-    shares <- apply(H, MARGIN=2, FUN=sum);
-    k <- sum(abs(shares) * prices[tm, ]);
-    shares <- shares * alloc /k;
-    return(shares);
-}
+##     scores <- abs(sharpe) * scheme.score;
+##     normalizer <- sum(scores);
+##     ## £ to invest in eigen portfolio i
+##     to.expose <- scores / normalizer;
+##     for (i in 1:p) {
+##         H[i, ] <- sign(sharpe[i]) * (to.expose[i]/leverage[i]) * E$vectors[, i] / prices[tm, ];
+##     }
+##     shares <- apply(H, MARGIN=2, FUN=sum);
+##     k <- sum(abs(shares) * prices[tm, ]);
+##     shares <- shares * alloc /k;
+##     return(shares);
+## }
 
 factor.algo.2 <- function(tm, params, holding)
 {
