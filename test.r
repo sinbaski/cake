@@ -372,7 +372,7 @@ registerDoMC(detectCores());
 wealths <- matrix(1, ncol=2, nrow=length(strats));
 
 cl <- makeCluster(detectCores());
-t1 <- 101;
+t1 <- t0;
 ## for (tm in 233:260) {
 for (tm in 101:500) {
     cat(sprintf("At time %d\n", tm));
