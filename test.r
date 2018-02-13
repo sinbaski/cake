@@ -1,6 +1,7 @@
 rm(list=ls());
 graphics.off();
 require(RMySQL);
+require(forecast);
 source("~/cake/libeix.r");
 
 ## factor.algo <- function(tm, params, holding)
@@ -93,7 +94,7 @@ source("~/cake/libeix.r");
 ##     return(holding);
 ## }
 
-algo.t.test <- function(tm, params, Y, E, alloc)
+algo.arma <- function(tm, params, Y, E, alloc)
 {
     p <- dim(prices)[2];
     ## £ exposed for every £ invested, i.e. price for each unit of the portfolio
@@ -105,30 +106,26 @@ algo.t.test <- function(tm, params, Y, E, alloc)
     H <- matrix(NA, nrow=p, ncol=p);
     flag <- FALSE;
     for (i in 1:p) {
-        r <- cor(head(Y[, i], n=-1), tail(Y[, i], n=-1));
-        
-        mu <- mean(Y[, i]);
-        sig <- if (E$values[i] > 0) sqrt(E$values[i]) else NaN;
-        if (is.nan(sig) || abs(mu)/sig > 2) {
-            sharpe[i] <- sign(mu) * 2;
-            flag <- TRUE;
+        ## mu <- mean(Y[, i]);
+        ## sig <- if (E$values[i] > 0) sqrt(E$values[i]) else NaN;
+        ## if (is.nan(sig) || abs(mu)/sig > 2) {
+        ##     sharpe[i] <- sign(mu) * 2;
+        ##     flag <- TRUE;
+        ##     next;
+        ## }
+        model <- fit.arma(Y[, i]);
+        prediction <- predict(model, n.ahead=1);
+        if (length(model$coef) > 0) {
+            sharpe[i] <- prediction$pred[1]/prediction$se[1];
             next;
         }
-        result <- t.test(Y[, i]);
-        if (result$p.value < params$confidence) {
-            sharpe[i] <- mu/sig;
-            flag <- TRUE;
-        } else {
-            ## sharpe[i] <- 0;
-            n <- dim(Y)[1] + 1;
-            S <- rep(NA, n);
-            S[1] <- 1;
-            for (j in 1:(n-1)) {
-                S[j+1] <- S[j] * (1 + Y[j, i]);
-            }
-            sharpe[i] <- mean(head(S, n=-1))/S[n] - 1;
-            sharpe[i] <- sharpe[i]/sig;
+        n <- dim(Y)[1] + 1;
+        S <- rep(NA, n);
+        S[1] <- 1;
+        for (j in 1:(n-1)) {
+            S[j+1] <- S[j] * (1 + Y[j, i]);
         }
+        sharpe[i] <- (mean(head(S, n=-1))/S[n] - 1)/prediction$se[1];
     }
     if (!flag) return(rep(0, p));
     
@@ -207,7 +204,7 @@ factor.algo.2 <- function(tm, params, holding)
     s <- params$alloc + 1;
     ## H[1, ] <- algo.bs(tm, params, Y, E, params$alloc/s);
     H[1, ] <- 0;
-    H[2, ] <- algo.t.test(tm, params, Y, E, 1/s);
+    H[2, ] <- algo.arma(tm, params, Y, E, 1/s);
 
     shares <- apply(H, MARGIN=2, FUN=sum);
     shares <- shares/sum(abs(shares) * prices[tm, ]) * wealth * params$exposure;
@@ -279,7 +276,6 @@ symbols <- c(
     "iau",
     "ibm",
     "jjc",
-    "jo",
     "jpm",
     "ko",
     "luv",
@@ -317,29 +313,38 @@ symbols <- c(
     "yum"
 );
 
-stmt <- "select spy_daily.tm as tm,"
-for (i in 1:length(symbols)) {
-    stmt <- paste(
-        stmt, sprintf("%1$s_daily.closing as %1$s,", symbols[i])
-    );
-}
-stmt <- paste(substr(stmt, 1, nchar(stmt)-1), "from");
-for (i in 1:length(symbols)) {
-    stmt <- paste(
-        stmt, sprintf("%s_daily join", symbols[i])
-    );
-}
-stmt <- paste(substr(stmt, 1, nchar(stmt) - 5), "on");
-for (i in 2:length(symbols)) {
-    stmt <- paste(
-        stmt, sprintf("spy_daily.tm = %s_daily.tm and", symbols[i])
-    );
-}
-stmt <- paste(substr(stmt, 1, nchar(stmt) - 4),
-              "order by spy_daily.tm;");
+p <- length(symbols);
 
 database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
                      dbname='market', host="192.168.154.1");
+
+days <- matrix(NA, ncol=2, nrow=p);
+for (i in 1:length(symbols)) {
+    rs <- dbSendQuery(database, sprintf("select min(tm), max(tm) from %s_daily;", symbols[i]));
+    days[i, ] <- as.matrix(fetch(rs, n=-1));
+}
+
+
+## stmt <- "select spy_daily.tm as tm,"
+## for (i in 1:length(symbols)) {
+##     stmt <- paste(
+##         stmt, sprintf("%1$s_daily.closing as %1$s,", symbols[i])
+##     );
+## }
+## stmt <- paste(substr(stmt, 1, nchar(stmt)-1), "from");
+## for (i in 1:length(symbols)) {
+##     stmt <- paste(
+##         stmt, sprintf("%s_daily join", symbols[i])
+##     );
+## }
+## stmt <- paste(substr(stmt, 1, nchar(stmt) - 5), "on");
+## for (i in 2:length(symbols)) {
+##     stmt <- paste(
+##         stmt, sprintf("spy_daily.tm = %s_daily.tm and", symbols[i])
+##     );
+## }
+## stmt <- paste(substr(stmt, 1, nchar(stmt) - 4),
+##               "order by spy_daily.tm;");
 
 results <- dbSendQuery(database, stmt);
 data <- fetch(results, n=-1);

@@ -20,6 +20,36 @@ proj.vec <- function(x, y)
     sum(x * y) / sum(y^2) * y;
 }
 
+acf.test <- function(X, lag=1)
+{
+    r <- cor(head(X, n=-lag), tail(X, n=-lag));
+    n <- length(X) - lag;
+    T <- sqrt(n - 2) * r / sqrt(1 - r^2);
+    p.value <- pt(q=T, df=n-2, lower.tail=(T < 0));
+    return(list(estimate=r, p.value=p.value));
+}
+
+fit.arma <- function(X, order.max=c(1,1))
+{
+    bic <- Inf;
+    model <- list(bic=Inf);
+    for (j in 0:order.max[1]) {
+        for (k in 0:order.max[2]) {
+            mdl0 <- arima(X, order=c(j, 0, k), include.mean=FALSE);
+            mdl1 <- arima(X, order=c(j, 0, k), include.mean=TRUE);
+            bics <- c(BIC(mdl0), BIC(mdl1), bic);
+            selected <- which.min(bics);
+            if (selected == 1) {
+                model <- mdl0;
+            } else if (selected == 2) {
+                model <- mdl1;
+            }
+            bic <- bics[selected];
+        }
+    }
+    return(model);
+}
+
 
 fit.dist <- function(data)
 {
@@ -270,7 +300,7 @@ expected.shortfall <- function(params, alpha, lower=TRUE)
     return(abs(integral$value/alpha));
 }
 
-MA <- function(x, span=1, fun=function(x) rep(1, length(x)))
+MA <- function(x, span=1, fun=function(lags) rep(1, length(lags)))
 {
     if (span == 1) return(x);
     w <- fun(0:(span-1));
