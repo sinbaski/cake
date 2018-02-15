@@ -35,16 +35,28 @@ fit.arma <- function(X, order.max=c(1,1))
     model <- list(bic=Inf);
     for (j in 0:order.max[1]) {
         for (k in 0:order.max[2]) {
-            mdl0 <- arima(X, order=c(j, 0, k), include.mean=FALSE);
-            mdl1 <- arima(X, order=c(j, 0, k), include.mean=TRUE);
-            bics <- c(BIC(mdl0), BIC(mdl1), bic);
-            selected <- which.min(bics);
-            if (selected == 1) {
-                model <- mdl0;
-            } else if (selected == 2) {
-                model <- mdl1;
+            mdl <- vector("list", length=2);
+            include.mean <- FALSE;
+            for (m in 1:length(mdl)) {
+                mdl[[m]] <- tryCatch(
+                {
+                    arima(X, order=c(j, 0, k), include.mean=include.mean)
+                }, warning=function(w) {
+                    list(code=-1, BIC=Inf);
+                }, error=function(e) {
+                    list(code=-1, BIC=Inf);
+                });
+                include.mean <- !include.mean;
             }
-            bic <- bics[selected];
+            bics <- c(
+                sapply(1:2, function(i) if (mdl[[i]]$code == 0) BIC(mdl[[i]]) else Inf),
+                bic
+                );
+            selected <- which.min(bics);
+            if (selected <= 2) {
+                model <- mdl[[selected]];
+                bic <- bics[selected];
+            }
         }
     }
     return(model);
