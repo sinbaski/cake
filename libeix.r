@@ -29,33 +29,38 @@ acf.test <- function(X, lag=1)
     return(list(estimate=r, p.value=p.value));
 }
 
-fit.arma <- function(X, order.max=c(1,1))
+fit.arma <- function(X, order.max=c(1,1), include.mean=NA)
 {
     bic <- Inf;
     model <- list(bic=Inf);
     for (j in 0:order.max[1]) {
         for (k in 0:order.max[2]) {
-            mdl <- vector("list", length=2);
-            include.mean <- FALSE;
-            for (m in 1:length(mdl)) {
-                mdl[[m]] <- tryCatch(
-                {
-                    arima(X, order=c(j, 0, k), include.mean=include.mean)
-                }, warning=function(w) {
-                    list(code=-1, BIC=Inf);
-                }, error=function(e) {
-                    list(code=-1, BIC=Inf);
-                });
-                include.mean <- !include.mean;
+            if (is.na(include.mean)) {
+                flags <- c(FALSE, TRUE);
+            } else {
+                flags <- include.mean;
             }
-            bics <- c(
-                sapply(1:2, function(i) if (mdl[[i]]$code == 0) BIC(mdl[[i]]) else Inf),
-                bic
+            mdl <- vector("list", length=length(flags));
+            for (flag in flags) {
+                for (m in 1:length(mdl)) {
+                    mdl[[m]] <- tryCatch(
+                    {
+                        arima(X, order=c(j, 0, k), include.mean=flag)
+                    }, warning=function(w) {
+                        list(code=-1, BIC=Inf);
+                    }, error=function(e) {
+                        list(code=-1, BIC=Inf);
+                    });
+                }
+                bics <- c(
+                    sapply(1:length(flags), function(i) if (mdl[[i]]$code == 0) BIC(mdl[[i]]) else Inf),
+                    bic
                 );
-            selected <- which.min(bics);
-            if (selected <= 2) {
-                model <- mdl[[selected]];
-                bic <- bics[selected];
+                selected <- which.min(bics);
+                if (selected <= length(flags)) {
+                    model <- mdl[[selected]];
+                    bic <- bics[selected];
+                }
             }
         }
     }

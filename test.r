@@ -25,31 +25,35 @@ algo.arma <- function(tm, params, Y, E)
         if (length(model$coef) > 0) {
             mu <- prediction$pred[1];
             sig <- prediction$se[1];
-            scores[i] <- mu + params$gda *
-                integrate(
-                    f=function(x) x * dnorm(x, mean=mu, sd=sig),
-                    lower=if (mu > 0) -Inf else 0,
-                    upper=if (mu > 0) 0 else Inf,
-                    rel.tol=1.0e-2
-                );
+            I <- integrate(
+                f=function(x) x * dnorm(x, mean=mu, sd=sig),
+                lower=if (mu > 0) -Inf else 0,
+                upper=if (mu > 0) 0 else Inf,
+                rel.tol=1.0e-2
+            );
+            scores[i] <- mu + params$gda * I$value;
         } else {
             scores[i] <- 0;
         }
     }
     i <- which.max(abs(scores));
-    shares <- sign(scores[i])/leverage[i] * E$vectors[, i]/prices[tm, ];
+    if (abs(scores[i]) > params$score.min) {
+        shares <- sign(scores[i])/leverage[i] * E$vectors[, i]/prices[tm, ];
+    } else {
+        shares <- rep(0, p);
+    }
 
     ## H <- matrix(NA, nrow=p, ncol=p);    
-    ## scores <- abs(sharpe) * scheme.score;
-    ## normalizer <- sum(scores);
+    ## ## scores <- abs(sharpe) * scheme.score;
+    ## normalizer <- sum(abs(scores));
     ## ## £ to invest in eigen portfolio i
-    ## to.expose <- scores / normalizer;
+    ## to.expose <- abs(scores) / normalizer;
     ## for (i in 1:p) {
-    ##     H[i, ] <- sign(sharpe[i]) * (to.expose[i]/leverage[i]) * E$vectors[, i] / prices[tm, ];
+    ##     H[i, ] <- sign(scores[i]) * (to.expose[i]/leverage[i]) * E$vectors[, i] / prices[tm, ];
     ## }
     ## shares <- apply(H, MARGIN=2, FUN=sum);
     ## k <- sum(abs(shares) * prices[tm, ]);
-    ## shares <- shares * alloc/k;
+    ## shares <- shares/k;
     return(shares);
 }
 
@@ -84,8 +88,10 @@ gen.strat <- function(holding)
     T1 <- runif(1, min=15, max=25);
     exposure <- runif(1, min=0.5, max=0.9);
     gda <- runif(1, min=0.05, max=1);
+    score.min <- runif(1, min=1.0e-3, max=1.0e-2);
     params <- list(T1=round(T1),
                    gda=gda,
+                   score.min=score.min,
                    exposure=exposure
                    );
     return(list(fun=factor.algo.2, params=params, holding=holding));
@@ -189,17 +195,22 @@ day2 <- min(days[, 2]);
 excluded <- {};
 n <- NA;
 for (i in 1:length(symbols)) {
-    rs <- dbSendQuery(database, sprintf(paste("select closing from %s_daily ",
-                                              "where tm between '%s' and '%s'",
-                                              "order by tm;"),
-                                        symbols[i], day1, day2));
+    rs <- dbSendQuery(database,
+                      sprintf(paste("select high, low, closing from %s_daily ",
+                                    "where tm between '%s' and '%s'",
+                                    "order by tm;"),
+                              symbols[i], day1, day2));
+    data <- fetch(rs, n=-1);
     if (i == 1) {
-        prices <- fetch(rs, n=-1)$closing;
-        n <- length(prices);
+        prices <- data$closing;
+        highs <- data$high;
+        lows <- data$low;
+        n <- dim(data)[1];
     } else {
-        P <- fetch(rs, n=-1)$closing;
-        if (length(P) == n) {
-            prices <- cbind(prices, P);
+        if (dim(data)[1] == n) {
+            prices <- cbind(prices, data$closing);
+            highs <- cbind(highs, data$high);
+            lows <- cbind(lows, data$low);
         } else {
             excluded <- c(excluded, i);
         }
@@ -265,7 +276,7 @@ wealths <- matrix(1, ncol=2, nrow=length(strats));
 cl <- makeCluster(detectCores());
 t1 <- t0;
 ## for (tm in 233:260) {
-for (tm in t0:10) {
+for (tm in t0:100) {
     cat(sprintf("At time %d\n", tm));
     ## holding <- matrix(NA, nrow=length(strats), ncol=1+p);
     ## for (i in 1:length(strats)) {
@@ -324,6 +335,7 @@ for (tm in t0:10) {
         strats[[i]]$params$T1 <- l;
         strats[[i]]$params$exposure <- min(log.mutation(strats[[i]]$params$exposure, sig), 1);
         strats[[i]]$params$gda <- log.mutation(strats[[i]]$params$gda, sig);
+        strats[[i]]$params$score.min <- log.mutation(strats[[i]]$params$score.min, sig);
     }
 }
 stopCluster(cl);
