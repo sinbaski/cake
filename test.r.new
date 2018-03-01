@@ -3,6 +3,8 @@ graphics.off();
 require(RMySQL);
 source("~/cake/libeix.r");
 
+set.seed(0);
+
 algo.arma <- function(tm, params, Y, E)
 {
     p <- dim(prices)[2];
@@ -97,7 +99,7 @@ factor.algo.2 <- function(tm, params, holding)
 
 gen.strat <- function(holding)
 {
-    T1 <- runif(1, min=15, max=25);
+    T1 <- runif(1, min=15, max=60);
     loss.tol <- runif(1, min=1.0e-3, max=5.0e-3);
     gda <- runif(1, min=0.05, max=1);
     score.min <- runif(1, min=1.0e-3, max=1.0e-2);
@@ -107,6 +109,15 @@ gen.strat <- function(holding)
                    loss.tol=loss.tol
                    );
     return(list(fun=factor.algo.2, params=params, holding=holding));
+}
+
+save.conf <- function(strats, R)
+{
+    T1 <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$T1);
+    GDA <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$gda);
+    score.min <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$score.min);
+    loss.tol <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$loss.tol);
+    save(T1, GDA, score.min, loss.tol, R, file="StratsReturns.RData");
 }
 
 symbols <- c(
@@ -250,6 +261,7 @@ sys.holding <- matrix(NA, nrow=dim(prices)[1], ncol=dim(prices)[2]+1);
 
 V <- rep(NA, dim(prices)[1]);
 V.max <- rep(1, dim(prices)[1]);
+DD <- rep(NA, dim(prices)[1]);
 
 require(foreach);
 require(doMC);
@@ -261,19 +273,20 @@ t0 <- 120;
 t1 <- t0;
 wealths <- matrix(1, ncol=2, nrow=length(strats));
 ## for (tm in 233:260) {
-for (tm in t0:160) {
-    cat(sprintf("At time %d\n", tm));
-    ## holding <- matrix(NA, nrow=length(strats), ncol=1+p);
-    ## for (i in 1:length(strats)) {
-    ##     holding[i, ] <- strats[[i]]$fun(tm, strats[[i]]$params, strats[[i]]$holding);
-    ## }
-
-    holding <- foreach(i=1:length(strats), .combine=rbind) %dopar% {
-        strats[[i]]$fun(tm, strats[[i]]$params, strats[[i]]$holding);
-    }
-    sys.holding[tm, ] <- parApply(cl, holding, MARGIN=2, FUN=mean);
-    V[tm] <- sum(sys.holding[tm, 1:p] * prices[tm, ]) + sys.holding[tm, p+1];
+for (tm in 543:1000) {
+    wealths[, 2] <- sapply(
+        1:length(strats),
+        FUN=function(i) {
+            sum(strats[[i]]$holding[1:p] * prices[tm, ]) + strats[[i]]$holding[p+1];
+        }
+    );
+    V[tm] <- mean(wealths[, 2]);
     V.max[tm] = if (V[tm] > V.max[tm-1]) V[tm] else V.max[tm-1];
+    DD[tm] <- 1 - V[tm]/V.max[tm];
+    holding <- t(sapply(1:length(strats), FUN=function(i) strats[[i]]$holding));
+    sys.holding[tm, ] <- apply(holding, MARGIN=2, FUN=mean);
+    
+    cat(sprintf("At time %d, DD=%.3f, value = %.3f\n", tm, DD[tm], V[tm]));
 
     if (tm - t1 >= 5) {
         ret <- sapply((t1+1):tm, FUN=function(k) V[k]/V[k-1] - 1);
@@ -288,43 +301,81 @@ for (tm in t0:160) {
     }
     flag <- sample(x=c(TRUE, FALSE), size=1, replace=TRUE, prob=c(prob, 1- prob));
     if (!flag) {
+        cat(sprintf("    prob=%.2f. continue\n", prob));
+        holding <- foreach(i=1:length(strats), .combine=rbind) %dopar% {
+            strats[[i]]$fun(tm, strats[[i]]$params, strats[[i]]$holding);
+        }
         for (i in 1:length(strats)) {
             strats[[i]]$holding <- holding[i, ];
         }
         next;
     }
-    
-    ## who survive to the next period?
-    wealths[, 2] <- holding[, 1:p] %*% prices[tm, ] + holding[, p + 1];
+
+    ## Compute statistics since the last selection or regeneration
+    cat(sprintf("    prob=%.2f. evaluate.\n", prob));
     R <- wealths[, 2]/wealths[, 1] - 1;
     mu <- mean(R);
-    good <- which(R > 0);
-    bad <- setdiff(1:length(strats), good);
-    fitness <- 5^((R - mu)/0.01)/sqrt(max(tm - t1, 1));
-    winners <- sample(1:length(strats), size=length(good),
-                      prob=fitness, replace=TRUE);
-    k <- sum(wealths[good, 2])/sum(wealths[winners, 2]);
-    strats[1:length(good)] <- strats[winners];
-    for (i in 1:length(good)) {
-        strats[[i]]$holding <- holding[winners[i], ] * k;
-        wealths[i, 1] <- wealths[winners[i], 2] * k;
+    R.max <- max(R);
+    save.conf(strats, R);
+    
+    cat("    Returns: ", c(min(R), mu, R.max), "\n");
+    ## Bad performance. Search the entire configuration space
+    idx <- which.max(R);
+    cat("    Best:  ", paste(strats[[idx]]$params), "\n");
+    idx <- which.min(R);
+    cat("    Worst: ", paste(strats[[idx]]$params), "\n");
+    cat(sprintf("    SPY:   %.3f\n", prices[tm, 1]/prices[t1, 1] - 1));
+    
+    if (tm - t1 >= 2) {
+        T <- t.test(sapply((t1+1):tm, FUN=function(i) V[i]/V[i-1] - 1));
+    } else {
+        T <- list(p.value=NA, estimate=NA);
     }
-    H <- c(rep(0, p), mean(wealths[bad, 2]));
-    for (i in (length(good)+1):length(strats)) {
-        strats[[i]] <- gen.strat(H);
-        wealths[i, 1] <- H[p+1];
+    cat(sprintf("    t-test: p-value=%.3f, estimate=%.3f",
+                T$p.value, T$estimate), "\n");
+    if (max(R) < 0.01 || (!is.na(T$p.value) && T$p.value < 0.2 && T$estimate < 0)) {
+        cat(sprintf("    regenerate.\n"));
+        for (i in 1:length(strats)) {
+            holding <- c(rep(0, p), mean(wealths[, 2]));
+            strats[[i]] <- gen.strat(holding);
+        }
+        t1 <- tm;
+        next;
     }
 
-    ## holding <- holding[winners, ] * k;
+    ## who survive to the next period?
+    cat(sprintf("    select.\n"));
+    fitness <- 4^((R - mu)/0.01);
+    winners <- rle(sample(1:length(strats), size=length(strats),
+                          prob=fitness, replace=TRUE));
+    k <- sum(wealths[, 2])/sum(wealths[winners$values, 2] * winners$length);
+    holding <- foreach(i=winners$values, .combine=rbind) %dopar% {
+        k * strats[[i]]$fun(tm, strats[[i]]$params, strats[[i]]$holding);
+    }
+    for (i in 1:length(winners$values)) {
+        j <- winners$values[i];
+        strats[[j]]$holding <- holding[i, ];
+    }
+
+    ## k <- sum(wealths[, 2])/sum(wealths[winners, 2]);
+    ## Now let the winners adjust our positions
+    ## foreach(i=winners$values) %dopar% {
+    ##     strats[[i]]$holding <- k * strats[[i]]$fun(tm, strats[[i]]$params, strats[[i]]$holding);
+    ## }
+    strats <- rep(strats[winners$values], winners$length);
+    wealths[, 1] <- rep(k*wealths[winners$values, 2], winners$length);
+    cat(sprintf("    %d (%d) selected.\n", length(winners$values), length(strats)));
     ## strats <- strats[winners];
-    sys.holding[tm, ] <- parApply(cl, holding[winners, ] * k, MARGIN=2, FUN=mean);
-    sys.holding[tm, p+1] <- sys.holding[tm, p+1] + sum(wealths[bad, 2]);
-    ## wealths[, 1] <- holding[, 1:p] %*% prices[tm, ] + holding[, p + 1];
+    ## for (i in 1:length(strats)) {
+    ##     strats[[i]]$holding <- strats[[i]]$holding * k;
+    ##     wealths[i, 1] <- wealths[winners[i], 2] * k;
+    ## }
+    ## sys.holding[tm, ] <- parApply(cl, holding[winners, ] * k, MARGIN=2, FUN=mean);
 
     ## Survivors mutate
     sig <- 0.05 * exp(1 - V[tm]/V[t1]);
     t1 <- tm;
-    for (i in 1:length(good)) {
+    for (i in 1:length(strats)) {
         l <- round(log.mutation(strats[[i]]$params$T1, sig));
         l <- min(tm, max(l, 5));
         strats[[i]]$params$T1 <- l;
@@ -335,28 +386,21 @@ for (tm in t0:160) {
 }
 stopCluster(cl);
 
-W <- holding[, 1:p] %*% prices[tm, ] + holding[, p+1];
-DD <- 1 - V[t0:tm]/V.max[t0:tm];
-days <- data[, 1];
+## W <- holding[, 1:p] %*% prices[tm, ] + holding[, p+1];
+## DD <- 1 - V[t0:tm]/V.max[t0:tm];
+## days <- data[, 1];
 
 T1 <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$T1);
-exposure <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$exposure);
 GDA <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$gda);
 score.min <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$score.min);
-
-idx.max <- which.max(W);
-strats[[idx.max]]$params
-
-idx.min <- which.min(W);
-strats[[idx.min]]$params
+loss.tol <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$loss.tol);
+A <- cbind(T1, GDA, score.min, loss.tol);
 
 ## save(data, V, W, t0, t1, tm, days, holding,
 ##      T1, T2, alloc, exposure, confidence,
 ##      file="evolution.RData");
 
-save(data, V, W, t0, t1, tm, holding,
-     T1, exposure,
-     file="evolution.RData");
+save(T1, GDA, score.min, loss.tol, R, file="StratsReturns.RData");
 
 ## load(file="evolution.RData");
 for (i in 1:length(strats)) {
