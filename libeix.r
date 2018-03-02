@@ -74,6 +74,7 @@ fit.dist <- function(data)
 
     mu <- mean(data);
     sig <- sd(data);
+    if (sig == 0) return(list(bic=Inf));
 
     ## First try normal distribution
     params <- optim(
