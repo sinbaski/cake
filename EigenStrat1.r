@@ -243,7 +243,7 @@ p <- dim(prices)[2];
 log.mutation <- function(x, sig)
 {
     stopifnot(min(x) > 0);
-    exp(log(x) + rnorm(n=length(x), mean=0, sd=sig));
+    x * exp(rnorm(n=length(x), mean=0, sd=sig));
 }
 
 sys.holding <- matrix(NA, nrow=dim(prices)[1], ncol=dim(prices)[2]+1);
@@ -268,41 +268,45 @@ for (i in 1:length(strats)) {
     holding <- c(rep(0, p), 1);
     strats[[i]] <- gen.strat(t0, holding);
 }
-## wealths <- rep(1, length(strats));
-wealths <- matrix(1, nrow=length(strats), ncol=2);
-status <- 0;
-for (tm in 192:1000) {
+wealths <- rep(1, length(strats));
+period <- 20;
+in.drawdown <- FALSE;
+## wealths <- matrix(1, nrow=length(strats), ncol=2);
+for (tm in 552:1000) {
     W <- sapply(
         1:length(strats),
         FUN=function(i) {
             sum(strats[[i]]$holding[1:p] * prices[tm, ]) + strats[[i]]$holding[p+1];
         }
     );
-    ## if (status > 0) {
-    ##     wealths <- rbind(wealths, W);
-    ## }
-    wealths[, 2] <- W;
+    if (tm == t1) {
+        wealths <- W;
+    } else {
+        wealths <- rbind(wealths, W);
+    }
     V[tm] <- mean(W);
     V.max[tm] = if (V[tm] > V.max[tm-1]) V[tm] else V.max[tm-1];
     DD[tm] <- 1 - V[tm]/V.max[tm];
-    ## holding <- t(sapply(1:length(strats), FUN=function(i) strats[[i]]$holding));
+    in.drawdown <- DD[tm] >= 0.015;
+    action <- "go";
+    ## if (DD[tm] < 0.015 && in.drawdown) {
+    ##     in.drawdown <- FALSE;
+    ## }
 
-    cat(sprintf("At time %d, DD=%.3f, value = %.3f\n", tm, DD[tm], V[tm]));
-
-    if (tm - t1 >= 5) {
-        ret <- sapply((t1+1):tm, FUN=function(k) V[k]/V[k-1] - 1);
-        F <- fit.dist(ret);
-        if (F$bic < Inf) {
-            prob <- F$fun.p(0);
+    cat("\n", sprintf("At time %d, DD=%.3f, value = %.3f\n", tm, DD[tm], V[tm]));
+    if (tm - t1 >= 12) {
+        T <- t.test(sapply((t1+1):tm, FUN=function(i) V[i]/V[i-1] - 1), alternative="less");
+        if (T$p.value < 0.2 && T$estimate < 0 || in.drawdown || (tm - t1) %% 20 == 0) {
+            action <- "evaluate";
         } else {
-            prob <- max(sum(ret < -2.0e-3)/length(ret), 0.1);
+            action <- "go";
         }
+        cat(sprintf("    t-test: p-value=%.3f, estimate=%.3f\n", T$p.value, T$estimate));
     } else {
-        prob <- 0.1;
+        action <- "go";
     }
-    flag <- sample(x=c(TRUE, FALSE), size=1, replace=TRUE, prob=c(prob, 1- prob));
-    if (!flag) {
-        cat(sprintf("    prob=%.2f. continue\n", prob));
+    if (action == "go") {
+        cat(sprintf("    continue\n"));
         outcome <- trade();
         for (i in 1:length(strats)) {
             strats[[i]]$holding <- outcome$holding[i, ];
@@ -310,34 +314,25 @@ for (tm in 192:1000) {
         sys.holding[tm, ] <- outcome$H;
         next;
     }
-
     ## Compute statistics since the last selection or regeneration
-    cat(sprintf("    prob=%.2f. evaluate.\n", prob));
+    cat(sprintf("    evaluate.\n"));
     
-
-
+    R <- apply(wealths, MARGIN=2, FUN=function(x) tail(x, n=-1)/head(x, n=-1) - 1);
+    ## sharpe may be NaN when the wealths over the entire period have not changed.
+    sharpe <- sapply(1:dim(R)[2], FUN=function(i) mean(R[, i])/sd(R[, i]));
+    sharpe[is.nan(sharpe)] <- 0;
+    ret <- sapply(1:dim(wealths)[2], FUN=function(i) tail(wealths[, i], n=1)/head(wealths[, i], n=1) - 1);
     
-    R <- wealths[, 2]/wealths[, 1] - 1;
-    mu <- mean(R);
-    R.max <- max(R);
-    ## save.conf(strats, R);
-
-    cat("    Returns: ", c(min(R), mu, R.max), "\n");
+    cat("    returns: ", c(min(ret), mean(ret), max(ret)), "\n");
+    cat("    Sharpe: ", c(min(sharpe), mean(sharpe), max(sharpe)), "\n");
     ## Bad performance. Search the entire configuration space
-    idx <- which.max(R);
+    idx <- which.max(sharpe);
     cat("    Best:  ", paste(strats[[idx]]$params), "\n");
-    idx <- which.min(R);
+    idx <- which.min(sharpe);
     cat("    Worst: ", paste(strats[[idx]]$params), "\n");
     cat(sprintf("    SPY:   %.3f\n", prices[tm, 1]/prices[t1, 1] - 1));
 
-    if (tm - t1 >= 2) {
-        T <- t.test(sapply((t1+1):tm, FUN=function(i) V[i]/V[i-1] - 1));
-    } else {
-        T <- list(p.value=NA, estimate=NA);
-    }
-    cat(sprintf("    t-test: p-value=%.3f, estimate=%.3f",
-                T$p.value, T$estimate), "\n");
-    if (max(R) < 0.01 || (!is.na(T$p.value) && T$p.value < 0.2 && T$estimate < 0)) {
+    if (max(sharpe) < 0.2) {
         cat(sprintf("    regenerate.\n"));
         for (i in 1:length(strats)) {
             holding <- c(rep(0, p), V[tm]);
@@ -354,7 +349,9 @@ for (tm in 192:1000) {
 
     ## who survive to the next period?
     cat(sprintf("    select.\n"));
-    fitness <- 2^((R - mu)/0.01);
+    ## fitness <- exp(sharpe - mean(sharpe));
+    fitness <- exp((sharpe - mean(sharpe))/sd(sharpe));
+    ## fitness <- pnorm(sharpe, mean=mean(sharpe), sd=sd(sharpe));
     N <- ceiling(length(strats) * 0.85);
     winners <- sample(1:length(strats), size=N,
                       prob=fitness, replace=TRUE);
@@ -366,10 +363,11 @@ for (tm in 192:1000) {
     for (i in (N+1):length(strats)) {
         strats[[i]] <- gen.strat(50, c(rep(0, p), V[tm]));
     }
-    wealths[, 1] <- rep(V[tm], length(strats));
+    wealths <- rep(V[tm], length(strats));
     
     ## Survivors mutate
     sig <- 0.05 * exp(1 - V[tm]/V[t1]);
+    ## sig <- 0.02;
     t1 <- tm;
     for (i in 1:N) {
         l <- round(log.mutation(strats[[i]]$params$T1, sig));

@@ -348,3 +348,5 @@ categorise.mkt <- function(S, lookback, confidence)
     }
     return(list(category="unknown"));
 }
+
+
