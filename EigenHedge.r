@@ -51,6 +51,8 @@ algo.arma <- function(params, exposure.max, Y, E)
     shares <- rep(0, p);
     if (abs(metrics[i, 3]) > params$score.min) {
         shares <- sign(metrics[i, 1]) * exposure * E$vectors[, i]/tail(prices, n=1);
+        ## block short positions
+        shares[shares < 0] <- 0;
     }
     return(shares);
 }
@@ -60,7 +62,9 @@ factor.algo.2 <- function(params, holding, exposure.max)
     p <- dim(prices)[2];
     invested <- holding[1:p] * tail(prices, n=1);
     wealth <- sum(invested) + holding[p+1];
-    stopifnot(wealth > 0);
+    if (wealth <= 0) {
+        return(c(rep(0, p), wealth));
+    }
     ret <- apply(tail(prices, n=params$T1), MARGIN=2, FUN=function(x) tail(x, n=-1)/head(x, n=-1) - 1);
     C <- cov(ret);
     E <- eigen(C);
@@ -73,7 +77,46 @@ factor.algo.2 <- function(params, holding, exposure.max)
     return(holding);
 }
 
-trade <- function(thedate)
+qrm <- function(thedate)
+{
+    p <- dim(prices)[2];
+    n <- 252;
+    database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
+                     dbname='market', host="localhost");
+    S <- array(NA, dim=c(n+1, p, 3));
+    vl <- matrix(NA, n, p);
+    ret <- matrix(NA, n, p);
+    ## col 1: forecast of the mean return
+    ## col 2: forecast of the s.d. of the return
+    ## We use univariate models, which don't account for covariances
+    ## and hence are inaccurate, but multivariate models are
+    ## computationally infeasible due to a large number of parameters.
+    forecast <- matrix(NA, nrow=p, ncol=2);
+    for (i in 1:p) {
+        stmt <- sprintf(paste(
+            "select high, low, closing from %s_daily where",
+            "datediff('%s', tm) >= 0 order by tm desc limit %d;"),
+            symbols[i], thedate, dim(S)[1]);
+        rs <- dbSendQuery(database, stmt);
+        S[, i, ] <- apply(as.matrix(fetch(rs, n=-1)), MARGIN=2, FUN=rev);
+        S[-1, i, 1] <- sapply(2:dim(S)[1], FUN=function(j) max(S[j, i, 1], S[j-1, i, 3]));
+        S[-1, i, 2] <- sapply(2:dim(S)[1], FUN=function(j) min(S[j, i, 2], S[j-1, i, 3]));
+        dbClearResult(rs);
+        vl[, i] <- sapply(2:(n+1), FUN=function(k) log(log(S[k, i, 1]/S[k, i, 2])));
+        ret[, i] <- tail(S[, i, 3], n=-1)/head(S[, i, 3], n=-1) - 1;
+        model.vol <- fit.arma(vl[, i], order.max=c(2,2), include.mean=TRUE);
+        model.ret <- fit.arma(ret[, i], order.max=c(2,2));
+        forecast[i, 1] <- predict(model.ret, n.ahead=1)$pred[1];
+        forecast[i, 2] <- exp(predict(model.vol, n.ahead=1)$pred[1]);
+    }
+    dbDisconnect(database);
+    C <- cor(ret);
+    outer <- forecast[, 2] %*% t(forecast[, 2]);
+    C <- C * outer;
+    return(list(mean=forecast[, 1], cov.mtx=C));
+}
+
+trade <- function(thedate, confidence=0.01, risk.tol=0.02)
 {
     p <- dim(prices)[2];
     closing <- tail(prices, n=1);
@@ -86,6 +129,28 @@ trade <- function(thedate)
     }
     loading <- t(sapply(1:dim(holding)[1], FUN=function(i) holding[i, 1:p] * closing));
     H <- apply(loading, MARGIN=2, FUN=mean);
+    worth <- sum(H) + mean(holding[, p+1]);
+    exposure <- sum(abs(H));
+    if (exposure > 0) {
+        G <- H/exposure;
+
+        ## Risk management
+        forecast <- qrm(thedate);
+        sig <- sqrt(G %*% forecast$cov.mtx %*% G);
+        mu <- sum(G * forecast$mean);
+        ## expected shortfall
+        J <- integrate(f=function(x) x * dnorm(x, mean=mu, sd=sig),
+                       lower=-Inf, upper=qnorm(confidence, mean=mu, sd=sig),
+                       rel.tol=1.0e-2
+                       );
+        es <- J$value/confidence;
+        ## scaling w.r.t. G, which has exposure 1
+        scaling <- min(risk.tol/abs(es), exposure.max)/exposure;
+        holding[, 1:p] <- holding[, 1:p] * scaling;
+        holding[, p+1] <- holding[, 1+p] + (1 - scaling) * apply(loading, MARGIN=1, FUN=sum);
+        loading <- loading * scaling;
+        H <- H * scaling;
+    }
     L <- which(H[1:p] > 0);
     S <- which(H[1:p] < 0);
     long <- if (length(L) > 0) sum(H[L]) else 0;
@@ -97,7 +162,7 @@ trade <- function(thedate)
                      dbname='market', host="localhost");
     stmt <- sprintf("insert into trade_log values ('%s'", thedate);
     for (i in 1:p) {
-        stmt <- paste(stmt, closing[i], H[i], sep=",");       
+        stmt <- paste(stmt, closing[i], H[i], sep=",");
     }
     stmt <- paste(stmt, ");");
     rs <- dbSendQuery(database, stmt);
@@ -188,6 +253,7 @@ symbols <- c(
     "spy",  ## S&P 500
     "dia",  ## Dow Jones
     "qqq",  ## Nasdaq
+    ## "ezu",  ## Euro zone equities
     ## "ewg",  ## Germany
     ## "ewj",  ## Japan
     ## "ewl",  ## Switzerland
@@ -195,22 +261,22 @@ symbols <- c(
     ## "ewp",  ## Spain
     ## "ewq",  ## France
     ## "ewu",  ## UK
-    ## "uup",  ## USD 
+    ## "uup",  ## USD
     ## "fxb",  ## British pound
     ## "fxc",  ## Canadian dollar
     ## "fxe",  ## euro
     ## "fxy",  ## Japanese yen
-    ## "iau",  ## gold
-    ## "slv",  ## silver
-    "vxx",  ## SP500 short term volatility
-    "vixy", ## SP500 short term volatility
-    "vxz",  ## SP500 mid term volatility
-    "viix"  ## SP500 short term volatility
+    "iau",  ## gold
+    "slv"  ## silver
+    ## "vxx",  ## SP500 short term volatility
+    ## "vixy", ## SP500 short term volatility
+    ## "vxz",  ## SP500 mid term volatility
+    ## "viix"  ## SP500 short term volatility
 );
 
 database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
                      dbname='market', host="localhost");
-rs <- dbSendQuery(database, "select tm from spy_daily where tm between '2011-09-19' and '2018-01-18';");
+rs <- dbSendQuery(database, "select tm from spy_daily where tm between '2006-04-28' and '2018-01-18';");
 days <- fetch(rs, n=-1)[[1]];
 dbClearResult(rs);
 
@@ -244,37 +310,31 @@ cl <- makeCluster(7);
 registerDoParallel(cl);
 
 
-t0 <- 60;
+t0 <- 710;
 t1 <- t0;
 exposure.max <- 0.8;
 strats <- vector("list", length=500);
 for (i in 1:length(strats)) {
     holding <- c(rep(0, length(symbols)), 1);
-    strats[[i]] <- gen.strat(t0, holding);
+    strats[[i]] <- gen.strat(min(120, t0), holding);
 }
 wealths <- rep(1, length(strats));
 HHistory <- NA;
 period <- 20;
 in.drawdown <- FALSE;
 included <- 1:length(symbols);
-for (tm in 101:length(days)) {
+for (tm in t0:length(days)) {
     ## update prices
     T <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$T1);
     T.max <- max(T);
     data.new <- get.data(symbols, days[(tm-T.max+1)], days[tm]);
-    J <- 1:dim(data.new$prices)[2];
-    if (!setequal(data.new$included, included)) {
-        J <- which(data.new$included %in% included);
-        stopifnot(length(J) == length(included));
-    }
     prices <- data.new$prices;
     p <- dim(prices)[2];
     W <- sapply(1:length(strats), FUN=function(i) {
         H <- strats[[i]]$holding;
-        sum(head(H, n=-1) * tail(prices, n=1)[J]) + tail(H, n=1);
+        sum(head(H, n=-1) * tail(prices, n=1)) + tail(H, n=1);
     });
-    included <- data.new$included;
-    
+
     V[tm] <- mean(W);
     V.max[tm] = if (V[tm] > V.max[tm-1]) V[tm] else V.max[tm-1];
     DD[tm] <- 1 - V[tm]/V.max[tm];
@@ -314,14 +374,14 @@ for (tm in 101:length(days)) {
     }
     ## Compute statistics since the last selection or regeneration
     cat(sprintf("    evaluate.\n"));
-    
+
     R <- apply(wealths, MARGIN=2, FUN=function(x) tail(x, n=-1)/head(x, n=-1) - 1);
     ## sharpe may be NaN when the wealths over the entire period have not changed.
     sharpe <- sapply(1:dim(R)[2], FUN=function(i) mean(R[, i])/sd(R[, i]));
     sharpe[is.nan(sharpe)] <- 0;
     ret <- sapply(1:dim(wealths)[2], FUN=function(i) tail(wealths[, i], n=1)/head(wealths[, i], n=1) - 1);
     tau <- kendall(HHistory);
-    
+
     n <- dim(prices)[1];
     cat("    returns: ", c(min(ret), mean(ret), max(ret)), "\n");
     cat("    Sharpe: ", c(min(sharpe), mean(sharpe), max(sharpe)), "\n");
@@ -363,7 +423,7 @@ for (tm in 101:length(days)) {
         strats[[i]] <- gen.strat(min(120, tm), c(rep(0, p), V[tm]));
     }
     wealths <- rep(V[tm], length(strats));
-    
+
     ## Survivors mutate
     sig <- 0.05 * exp(1 - V[tm]/V[t1]);
     ## sig <- 0.02;
