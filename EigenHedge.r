@@ -160,7 +160,7 @@ trade <- function(thedate, confidence=0.01, risk.tol=0.02)
     ## Record the trade
     database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
                      dbname='market', host="localhost");
-    stmt <- sprintf("insert into trade_log values ('%s'", thedate);
+    stmt <- sprintf("insert into trade_log values ('%s', %e", thedate, worth);
     for (i in 1:p) {
         stmt <- paste(stmt, closing[i], H[i], sep=",");
     }
@@ -196,7 +196,8 @@ kendall <- function(positions)
 {
     n <- dim(positions)[3];
     X <- as.vector(
-        apply(tail(prices, n=n+1), MARGIN=2, FUN=function(x) tail(x, n=-1)/head(x, n=-1) - 1)
+        apply(tail(prices, n=n+1), MARGIN=2,
+              FUN=function(x) tail(x, n=-1)/head(x, n=-1) - 1)
     );
     tau <- rep(NA, dim(positions)[1]);
     for (i in 1:dim(positions)[1]) {
@@ -250,9 +251,9 @@ get.data <- function(assets, day1, day2)
 }
 
 symbols <- c(
-    "spy",  ## S&P 500
-    "dia",  ## Dow Jones
-    "qqq",  ## Nasdaq
+    ## "spy",  ## S&P 500
+    ## "dia",  ## Dow Jones
+    ## "qqq",  ## Nasdaq
     ## "ezu",  ## Euro zone equities
     ## "ewg",  ## Germany
     ## "ewj",  ## Japan
@@ -261,11 +262,11 @@ symbols <- c(
     ## "ewp",  ## Spain
     ## "ewq",  ## France
     ## "ewu",  ## UK
-    ## "uup",  ## USD
+    "uup",  ## USD
     ## "fxb",  ## British pound
     ## "fxc",  ## Canadian dollar
-    ## "fxe",  ## euro
-    ## "fxy",  ## Japanese yen
+    "fxe",  ## euro
+    "fxy",  ## Japanese yen
     "iau",  ## gold
     "slv"  ## silver
     ## "vxx",  ## SP500 short term volatility
@@ -276,7 +277,7 @@ symbols <- c(
 
 database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
                      dbname='market', host="localhost");
-rs <- dbSendQuery(database, "select tm from spy_daily where tm between '2006-04-28' and '2018-01-18';");
+rs <- dbSendQuery(database, "select tm from spy_daily where tm between '2008-03-20' and '2018-03-19';");
 days <- fetch(rs, n=-1)[[1]];
 dbClearResult(rs);
 
@@ -285,7 +286,8 @@ dbClearResult(rs);
 
 stmt <- paste(
     "create table trade_log (",
-    "tm date primary key"
+    "tm date primary key",
+    "worth double"
 );
 for (i in 1:length(symbols)) {
     stmt <- paste(
@@ -310,7 +312,9 @@ cl <- makeCluster(7);
 registerDoParallel(cl);
 
 
-t0 <- 710;
+## We need at least one year's worth of data
+## to determine the position size
+t0 <- 253;
 t1 <- t0;
 exposure.max <- 0.8;
 strats <- vector("list", length=500);
@@ -323,7 +327,7 @@ HHistory <- NA;
 period <- 20;
 in.drawdown <- FALSE;
 included <- 1:length(symbols);
-for (tm in t0:length(days)) {
+for (tm in 511:length(days)) {
     ## update prices
     T <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$T1);
     T.max <- max(T);
@@ -346,8 +350,8 @@ for (tm in t0:length(days)) {
         wealths <- rbind(wealths, W);
     }
 
-    action <- "go";
-    cat("\n", sprintf("On day %d, %s, DD=%.3f, value = %.3f\n", tm, days[tm], DD[tm], V[tm]));
+    cat("\n", sprintf("On day %d, %s, DD=%.3f, value = %.3f\n",
+                      tm, days[tm], DD[tm], V[tm]));
     if (tm - t1 >= 12) {
         T <- t.test(sapply((t1+1):tm, FUN=function(i) V[i]/V[i-1] - 1), alternative="less");
         if (T$p.value < 0.2 && T$estimate < 0 || in.drawdown || (tm - t1) %% 20 == 0) {
