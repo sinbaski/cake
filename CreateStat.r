@@ -11,6 +11,9 @@ data <- fetch(rs, n=-1);
 dbClearResult(rs);
 dbDisconnect(database);
 
+n <- dim(data)[1];
+ret <- sapply(2:dim(data)[1], FUN=function(k) data$worth[k]/data$worth[k-1] - 1);
+
 days <- data$tm;
 records <- as.matrix(data[, c(-1, -2)]);
 cols <- seq(from=1, by=2, to=dim(records)[2]-1);
@@ -27,9 +30,8 @@ ret <-tail(V, n=-1)/head(V, n=-1) - 1;
 sharpe <- mean(ret)/sd(ret);
 V.max <- cummax(V);
 DD <- 1 - V/V.max;
-## turnover <- sum(abs(
-##     tail(records[, cols+1], n=-1) - head(records[, cols+1], n=-1)
-## ));
+
+
 turnover <- sapply(2:dim(records)[1], FUN=function(k) {
     x <- sum(abs(records[k, cols+1] - records[k-1, cols+1]*records[k, cols]/records[k-1, cols]));
     x/V[k];

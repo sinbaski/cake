@@ -53,7 +53,10 @@ fit.arma <- function(X, order.max=c(1,1), include.mean=NA)
                     });
                 }
                 bics <- c(
-                    sapply(1:length(flags), function(i) if (mdl[[i]]$code == 0) BIC(mdl[[i]]) else Inf),
+                    sapply(
+                        1:length(flags),
+                        function(i) if (mdl[[i]]$code == 0) BIC(mdl[[i]]) else Inf
+                    ),
                     bic
                 );
                 selected <- which.min(bics);
@@ -67,6 +70,41 @@ fit.arma <- function(X, order.max=c(1,1), include.mean=NA)
     return(model);
 }
 
+## fit.arma.2 <- function(X, order=c(1,1), include.mean=NA)
+## {
+##     bic <- Inf;
+##     model <- list(bic=Inf);
+##     if (is.na(include.mean)) {
+##         flags <- c(FALSE, TRUE);
+##     } else {
+##         flags <- include.mean;
+##     }
+##     mdl <- vector("list", length=length(flags));
+##     for (flag in flags) {
+##         for (m in 1:length(mdl)) {
+##             mdl[[m]] <- tryCatch(
+##             {
+##                 arima(X, order=c(order[1], 0, order[2]), include.mean=flag)
+##             }, warning=function(w) {
+##                 list(code=-1, BIC=Inf);
+##             }, error=function(e) {
+##                 list(code=-1, BIC=Inf);
+##             });
+##         }
+##         bics <- c(
+##             sapply(1:length(flags),
+##                    function(i) if (mdl[[i]]$code == 0) BIC(mdl[[i]]) else Inf
+##                    ),
+##             bic
+##         );
+##         selected <- which.min(bics);
+##         if (selected <= length(flags)) {
+##             model <- mdl[[selected]];
+##             bic <- bics[selected];
+##         }
+##     }
+##     return(model);
+## }
 
 fit.dist <- function(data)
 {
@@ -171,7 +209,7 @@ fit.OU <- function(ts)
     mu.init <- mean(ts);
     mu.lb <- min(mu.init/2, mu.init*2);
     mu.ub <- max(mu.init/2, mu.init*2);
-    
+
     fit <- tryCatch(
         expr={
             params <- optim(par=c(mu.init, theta.init, sig.init),
@@ -245,7 +283,7 @@ fit.BM <- function(ts)
     mu.init <- mean(X);
     mu.lb <- min(mu.init/2, mu.init*2);
     mu.ub <- max(mu.init/2, mu.init*2);
-    
+
     fit <- tryCatch(
         expr={
             params <- optim(par=c(mu.init, sig.init),
