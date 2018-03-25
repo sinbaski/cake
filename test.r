@@ -28,8 +28,9 @@ algo.arma <- function(params, exposure.max, Y, E)
         }
         return(c(score, es));
     }
+    d <- floor(log(params$T1));
     for (i in 1:K) {
-        model <- fit.arma(Y[, i], order.max=c(2,2));
+        model <- fit.arma(Y[, i], order.max=c(d, d), include.mean=TRUE);
         prediction <- predict(model, n.ahead=1);
         if (length(model$coef) > 0) {
             mu <- prediction$pred[1];
@@ -51,26 +52,32 @@ algo.arma <- function(params, exposure.max, Y, E)
     shares <- rep(0, p);
     if (abs(metrics[i, 3]) > params$score.min) {
         shares <- sign(metrics[i, 1]) * exposure * E$vectors[, i]/tail(prices, n=1);
+        ## block short positions
+        ## shares[shares < 0] <- 0;
     }
     return(shares);
 }
 
-factor.algo.2 <- function(params, holding, exposure.max)
+## factor.algo.2 <- function(params, holding, exposure.max)
+factor.algo.2 <- function(params, wealth, exposure.max)
 {
     p <- dim(prices)[2];
-    invested <- holding[1:p] * tail(prices, n=1);
-    wealth <- sum(invested) + holding[p+1];
+    ## invested <- holding[1:p] * tail(prices, n=1);
+    ## wealth <- sum(invested) + holding[p+1];
     if (wealth <= 0) {
         return(c(rep(0, p), wealth));
     }
-    ret <- apply(tail(prices, n=params$T1), MARGIN=2, FUN=function(x) tail(x, n=-1)/head(x, n=-1) - 1);
+    ret <- apply(tail(prices, n=params$T1), MARGIN=2,
+                 FUN=function(x) tail(x, n=-1)/head(x, n=-1) - 1);
     C <- cov(ret);
     E <- eigen(C);
     Y <- ret %*% E$vectors;
     shares <- algo.arma(params, exposure.max, Y, E);
     shares <- shares * wealth;
 
-    holding[p+1] <- holding[p+1] - sum((shares - holding[1:p]) * tail(prices, n=1));
+    ## holding[p+1] <- holding[p+1] - sum((shares - holding[1:p]) * tail(prices, n=1));
+    holding <- rep(NA, p+1);
+    holding[p+1] <- wealth - sum(shares * tail(prices, n=1));
     holding[1:p] <- shares;
     return(holding);
 }
@@ -117,50 +124,71 @@ qrm <- function(thedate)
 trade <- function(thedate, confidence=0.01, risk.tol=0.02)
 {
     p <- dim(prices)[2];
-    closing <- tail(prices, n=1);
+    n <- dim(prices)[1];
+    WR <- sapply(1:length(strats), FUN=function(i) {
+        x <- sum(strats[[i]]$holding[1:p] * prices[n-1, ]) + strats[[i]]$holding[p+1];
+        y <- sum(strats[[i]]$holding[1:p] * prices[n, ]) + strats[[i]]$holding[p+1];
+        c(y, x, y/x - 1);
+    });
+    if (length(unique(WR[3, ])) > 1) {
+        ## R <- WR[3, ] * exp(abs(WR[3, ] - mean(WR[3, ]))/sd(WR[3, ]));
+        R <- WR[3, ] * 20;
+        W <- WR[2, ] * (R + 1);
+        W <- W/sum(W) * sum(WR[1, ]);
+    } else {
+        W <- WR[1, ];
+    }
+    ## W <- sapply(1:length(strats), FUN=function(i) {
+    ##     sum(strats[[i]]$holding[1:p] * prices[n, ]) + strats[[i]]$holding[p+1];
+    ## });
     export <- c(
         "prices", "strats", "exposure.max",
         "factor.algo.2", "algo.arma", "fit.arma"
     );
     holding <- foreach(i=1:length(strats), .combine=rbind, .export=export) %dopar% {
-            factor.algo.2(strats[[i]]$params, strats[[i]]$holding, exposure.max);
+            factor.algo.2(strats[[i]]$params, W[i], exposure.max);
     }
-    loading <- t(sapply(1:dim(holding)[1], FUN=function(i) holding[i, 1:p] * closing));
+    loading <- matrix(NA, nrow=length(strats), ncol=p);
+    for (i in 1:dim(loading)[1]) {
+        loading[i, ] <- holding[i, 1:p] * prices[n, ];
+    }
     H <- apply(loading, MARGIN=2, FUN=mean);
     worth <- sum(H) + mean(holding[, p+1]);
     exposure <- sum(abs(H));
-    if (exposure > 0) {
-        G <- H/exposure;
+    ## if (exposure > 0) {
+    ##     G <- H/exposure;
 
-        ## Risk management
-        forecast <- qrm(thedate);
-        sig <- sqrt(G %*% forecast$cov.mtx %*% G);
-        mu <- sum(G * forecast$mean);
-        ## expected shortfall
-        J <- integrate(f=function(x) x * dnorm(x, mean=mu, sd=sig),
-                       lower=-Inf, upper=qnorm(confidence, mean=mu, sd=sig),
-                       rel.tol=1.0e-2
-                       );
-        es <- J$value/confidence;
-        ## scaling w.r.t. G, which has exposure 1
-        scaling <- min(risk.tol/abs(es), exposure.max)/exposure;
-        holding[, 1:p] <- holding[, 1:p] * scaling;
-        holding[, p+1] <- holding[, 1+p] + (1 - scaling) * apply(loading, MARGIN=1, FUN=sum);
-        loading <- loading * scaling;
-        H <- H * scaling;
-    }
+    ##     ## Risk management
+    ##     forecast <- qrm(thedate);
+    ##     sig <- sqrt(G %*% forecast$cov.mtx %*% G);
+    ##     mu <- sum(G * forecast$mean);
+    ##     ## expected shortfall
+    ##     J <- integrate(f=function(x) x * dnorm(x, mean=mu, sd=sig),
+    ##                    lower=-Inf, upper=qnorm(confidence, mean=mu, sd=sig),
+    ##                    rel.tol=1.0e-2
+    ##                    );
+    ##     es <- J$value/confidence;
+    ##     ## scaling w.r.t. G, which has exposure 1
+    ##     scaling <- min(risk.tol/abs(es), exposure.max)/exposure;
+    ##     holding[, 1:p] <- holding[, 1:p] * scaling;
+    ##     holding[, p+1] <- holding[, 1+p] +
+    ##         (1 - scaling) * apply(loading, MARGIN=1, FUN=sum);
+    ##     loading <- loading * scaling;
+    ##     H <- H * scaling;
+    ## }
     L <- which(H[1:p] > 0);
     S <- which(H[1:p] < 0);
     long <- if (length(L) > 0) sum(H[L]) else 0;
     short <- if (length(S) > 0) -sum(H[S]) else 0;
-    cat(sprintf("    long %.3f, short %.3f, cash %.3f\n", long, short, mean(holding[, p+1])));
+    cat(sprintf("    long %.3f, short %.3f, cash %.3f\n",
+                long, short, mean(holding[, p+1])));
 
     ## Record the trade
     database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
                      dbname='market', host="localhost");
-    stmt <- sprintf("insert into trade_log values ('%s'", thedate);
+    stmt <- sprintf("insert into trade_log values ('%s', %e", thedate, worth);
     for (i in 1:p) {
-        stmt <- paste(stmt, closing[i], H[i], sep=",");
+        stmt <- paste(stmt, prices[n, i], H[i], sep=",");
     }
     stmt <- paste(stmt, ");");
     rs <- dbSendQuery(database, stmt);
@@ -171,12 +199,12 @@ trade <- function(thedate, confidence=0.01, risk.tol=0.02)
 
 gen.strat <- function(T1.max, holding)
 {
-    T1 <- runif(1, min=15, max=T1.max);
+    T1 <- round(runif(1, min=15, max=T1.max));
     ## loss.tol <- runif(1, min=1.0e-3, max=5.0e-3);
     loss.tol <- 5.0e-3;
     gda <- runif(1, min=0.05, max=1);
     score.min <- runif(1, min=1.0e-3, max=1.0e-2);
-    params <- list(T1=round(T1),
+    params <- list(T1=T1,
                    gda=gda,
                    score.min=score.min,
                    loss.tol=loss.tol
@@ -194,7 +222,8 @@ kendall <- function(positions)
 {
     n <- dim(positions)[3];
     X <- as.vector(
-        apply(tail(prices, n=n+1), MARGIN=2, FUN=function(x) tail(x, n=-1)/head(x, n=-1) - 1)
+        apply(tail(prices, n=n+1), MARGIN=2,
+              FUN=function(x) tail(x, n=-1)/head(x, n=-1) - 1)
     );
     tau <- rep(NA, dim(positions)[1]);
     for (i in 1:dim(positions)[1]) {
@@ -248,9 +277,9 @@ get.data <- function(assets, day1, day2)
 }
 
 symbols <- c(
-    "spy",  ## S&P 500
-    "dia",  ## Dow Jones
-    "qqq",  ## Nasdaq
+    ## "spy",  ## S&P 500
+    ## "dia",  ## Dow Jones
+    ## "qqq",  ## Nasdaq
     ## "ezu",  ## Euro zone equities
     ## "ewg",  ## Germany
     ## "ewj",  ## Japan
@@ -259,11 +288,11 @@ symbols <- c(
     ## "ewp",  ## Spain
     ## "ewq",  ## France
     ## "ewu",  ## UK
-    ## "uup",  ## USD
+    "uup",  ## USD
     ## "fxb",  ## British pound
     ## "fxc",  ## Canadian dollar
-    ## "fxe",  ## euro
-    ## "fxy",  ## Japanese yen
+    "fxe",  ## euro
+    "fxy",  ## Japanese yen
     "iau",  ## gold
     "slv"  ## silver
     ## "vxx",  ## SP500 short term volatility
@@ -274,7 +303,7 @@ symbols <- c(
 
 database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
                      dbname='market', host="localhost");
-rs <- dbSendQuery(database, "select tm from spy_daily where tm between '2006-04-28' and '2018-01-18';");
+rs <- dbSendQuery(database, "select tm from spy_daily where tm between '2008-03-20' and '2018-03-19';");
 days <- fetch(rs, n=-1)[[1]];
 dbClearResult(rs);
 
@@ -283,7 +312,8 @@ dbClearResult(rs);
 
 stmt <- paste(
     "create table trade_log (",
-    "tm date primary key"
+    "tm date primary key,",
+    "worth double"
 );
 for (i in 1:length(symbols)) {
     stmt <- paste(
@@ -308,9 +338,11 @@ cl <- makeCluster(7);
 registerDoParallel(cl);
 
 
+## We need at least one year's worth of data
+## to determine the position size
 t0 <- 253;
 t1 <- t0;
-exposure.max <- 0.8;
+exposure.max <- 1;
 strats <- vector("list", length=500);
 for (i in 1:length(strats)) {
     holding <- c(rep(0, length(symbols)), 1);
@@ -318,10 +350,10 @@ for (i in 1:length(strats)) {
 }
 wealths <- rep(1, length(strats));
 HHistory <- NA;
-period <- 20;
+period <- 10;
 in.drawdown <- FALSE;
 included <- 1:length(symbols);
-for (tm in 280:length(days)) {
+for (tm in 255:length(days)) {
     ## update prices
     T <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$T1);
     T.max <- max(T);
@@ -330,8 +362,10 @@ for (tm in 280:length(days)) {
     p <- dim(prices)[2];
     W <- sapply(1:length(strats), FUN=function(i) {
         H <- strats[[i]]$holding;
-        sum(head(H, n=-1) * tail(prices, n=1)) + tail(H, n=1);
+        ## sum(head(H, n=-1) * tail(prices, n=1)) + tail(H, n=1);
+        sum(H[1:p] * tail(prices, n=1)) + H[p+1];
     });
+    ## stopifnot(min(W) > 0);
 
     V[tm] <- mean(W);
     V.max[tm] = if (V[tm] > V.max[tm-1]) V[tm] else V.max[tm-1];
@@ -344,10 +378,10 @@ for (tm in 280:length(days)) {
         wealths <- rbind(wealths, W);
     }
 
-    action <- "go";
-    cat("\n", sprintf("On day %d, %s, DD=%.3f, value = %.3f\n", tm, days[tm], DD[tm], V[tm]));
+    cat("\n", sprintf("On day %d, %s, DD=%.3f, value = %.3f\n",
+                      tm, days[tm], DD[tm], V[tm]));
     if (tm - t1 >= 12) {
-        T <- t.test(sapply((t1+1):tm, FUN=function(i) V[i]/V[i-1] - 1), alternative="less");
+        T <- t.test(sapply((t1+1):tm,FUN=function(i) V[i]/V[i-1] - 1), alternative="less");
         if (T$p.value < 0.2 && T$estimate < 0 || in.drawdown || (tm - t1) %% 20 == 0) {
             action <- "evaluate";
         } else {
@@ -357,6 +391,12 @@ for (tm in 280:length(days)) {
     } else {
         action <- "go";
     }
+    ## if (tm - t1 < period) {
+    ##     action <- "go";
+    ## } else {
+    ##     action <- "evaluate";
+    ## }
+
     if (action == "go") {
         cat(sprintf("    continue\n"));
         outcome <- trade(days[tm]);
@@ -364,9 +404,15 @@ for (tm in 280:length(days)) {
             strats[[i]]$holding <- outcome$holding[i, ];
         }
         if (tm == t1) {
-            HHistory <- outcome$loading
+            X <- t(sapply(1:length(strats), FUN=function(i) {
+                outcome$loading[i, ]/W[i];
+            }));
+            HHistory <- X;
         } else {
-            HHistory <- abind(HHistory, outcome$loading, along=3);
+            X <- t(sapply(1:length(strats), FUN=function(i) {
+                outcome$loading[i, ]/W[i];
+            }));
+            HHistory <- abind(HHistory, X, along=3);
         }
         next;
     }
@@ -377,7 +423,8 @@ for (tm in 280:length(days)) {
     ## sharpe may be NaN when the wealths over the entire period have not changed.
     sharpe <- sapply(1:dim(R)[2], FUN=function(i) mean(R[, i])/sd(R[, i]));
     sharpe[is.nan(sharpe)] <- 0;
-    ret <- sapply(1:dim(wealths)[2], FUN=function(i) tail(wealths[, i], n=1)/head(wealths[, i], n=1) - 1);
+    ret <- sapply(1:dim(wealths)[2], FUN=function(i)
+        tail(wealths[, i], n=1)/head(wealths[, i], n=1) - 1);
     tau <- kendall(HHistory);
 
     n <- dim(prices)[1];
@@ -391,7 +438,7 @@ for (tm in 280:length(days)) {
     cat("    Worst: ", paste(strats[[idx]]$params), "\n");
     cat(sprintf("    SPY:   %.3f\n", tail(prices, n=1)[1]/prices[n-(tm-t1), 1] - 1));
 
-    if (max(tau) < 0.1) {
+    if (max(tau) < 0.2) {
         cat(sprintf("    regenerate.\n"));
         for (i in 1:length(strats)) {
             holding <- c(rep(0, p), V[tm]);

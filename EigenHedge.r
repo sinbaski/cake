@@ -141,26 +141,27 @@ trade <- function(thedate, confidence=0.01, risk.tol=0.02)
     H <- apply(loading, MARGIN=2, FUN=mean);
     worth <- sum(H) + mean(holding[, p+1]);
     exposure <- sum(abs(H));
-    ## if (exposure > 0) {
-    ##     G <- H/exposure;
+    if (exposure > 0) {
+        G <- H/exposure;
 
-    ##     ## Risk management
-    ##     forecast <- qrm(thedate);
-    ##     sig <- sqrt(G %*% forecast$cov.mtx %*% G);
-    ##     mu <- sum(G * forecast$mean);
-    ##     ## expected shortfall
-    ##     J <- integrate(f=function(x) x * dnorm(x, mean=mu, sd=sig),
-    ##                    lower=-Inf, upper=qnorm(confidence, mean=mu, sd=sig),
-    ##                    rel.tol=1.0e-2
-    ##                    );
-    ##     es <- J$value/confidence;
-    ##     ## scaling w.r.t. G, which has exposure 1
-    ##     scaling <- min(risk.tol/abs(es), exposure.max)/exposure;
-    ##     holding[, 1:p] <- holding[, 1:p] * scaling;
-    ##     holding[, p+1] <- holding[, 1+p] + (1 - scaling) * apply(loading, MARGIN=1, FUN=sum);
-    ##     loading <- loading * scaling;
-    ##     H <- H * scaling;
-    ## }
+        ## Risk management
+        forecast <- qrm(thedate);
+        sig <- sqrt(G %*% forecast$cov.mtx %*% G);
+        mu <- sum(G * forecast$mean);
+        ## expected shortfall
+        J <- integrate(f=function(x) x * dnorm(x, mean=mu, sd=sig),
+                       lower=-Inf, upper=qnorm(confidence, mean=mu, sd=sig),
+                       rel.tol=1.0e-2
+                       );
+        es <- J$value/confidence;
+        ## scaling w.r.t. G, which has exposure 1
+        scaling <- min(risk.tol/abs(es), exposure.max)/exposure;
+        holding[, 1:p] <- holding[, 1:p] * scaling;
+        holding[, p+1] <- holding[, 1+p] +
+            (1 - scaling) * apply(loading, MARGIN=1, FUN=sum);
+        loading <- loading * scaling;
+        H <- H * scaling;
+    }
     L <- which(H[1:p] > 0);
     S <- which(H[1:p] < 0);
     long <- if (length(L) > 0) sum(H[L]) else 0;
@@ -297,7 +298,7 @@ dbClearResult(rs);
 
 stmt <- paste(
     "create table trade_log (",
-    "tm date primary key",
+    "tm date primary key,",
     "worth double"
 );
 for (i in 1:length(symbols)) {
@@ -327,7 +328,7 @@ registerDoParallel(cl);
 ## to determine the position size
 t0 <- 253;
 t1 <- t0;
-exposure.max <- 0.8;
+exposure.max <- 1;
 strats <- vector("list", length=500);
 for (i in 1:length(strats)) {
     holding <- c(rep(0, length(symbols)), 1);
@@ -335,10 +336,10 @@ for (i in 1:length(strats)) {
 }
 wealths <- rep(1, length(strats));
 HHistory <- NA;
-period <- 4;
+period <- 10;
 in.drawdown <- FALSE;
 included <- 1:length(symbols);
-for (tm in 1854:length(days)) {
+for (tm in 288:length(days)) {
     ## update prices
     T <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$T1);
     T.max <- max(T);
@@ -365,22 +366,22 @@ for (tm in 1854:length(days)) {
 
     cat("\n", sprintf("On day %d, %s, DD=%.3f, value = %.3f\n",
                       tm, days[tm], DD[tm], V[tm]));
-    ## if (tm - t1 >= 12) {
-    ##     T <- t.test(sapply((t1+1):tm,FUN=function(i) V[i]/V[i-1] - 1), alternative="less");
-    ##     if (T$p.value < 0.2 && T$estimate < 0 || in.drawdown || (tm - t1) %% 20 == 0) {
-    ##         action <- "evaluate";
-    ##     } else {
-    ##         action <- "go";
-    ##     }
-    ##     cat(sprintf("    t-test: p-value=%.3f, estimate=%.3f\n", T$p.value, T$estimate));
-    ## } else {
-    ##     action <- "go";
-    ## }
-    if (tm - t1 < period) {
-        action <- "go";
+    if (tm - t1 >= 12) {
+        T <- t.test(sapply((t1+1):tm,FUN=function(i) V[i]/V[i-1] - 1), alternative="less");
+        if (T$p.value < 0.2 && T$estimate < 0 || in.drawdown || (tm - t1) %% 20 == 0) {
+            action <- "evaluate";
+        } else {
+            action <- "go";
+        }
+        cat(sprintf("    t-test: p-value=%.3f, estimate=%.3f\n", T$p.value, T$estimate));
     } else {
-        action <- "evaluate";
+        action <- "go";
     }
+    ## if (tm - t1 < period) {
+    ##     action <- "go";
+    ## } else {
+    ##     action <- "evaluate";
+    ## }
 
     if (action == "go") {
         cat(sprintf("    continue\n"));
@@ -417,7 +418,7 @@ for (tm in 1854:length(days)) {
     cat("    Worst: ", paste(strats[[idx]]$params), "\n");
     cat(sprintf("    SPY:   %.3f\n", tail(prices, n=1)[1]/prices[n-(tm-t1), 1] - 1));
 
-    if (max(tau) < 0.1) {
+    if (max(tau) < 0.2) {
         cat(sprintf("    regenerate.\n"));
         for (i in 1:length(strats)) {
             holding <- c(rep(0, p), V[tm]);
