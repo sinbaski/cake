@@ -387,4 +387,29 @@ categorise.mkt <- function(S, lookback, confidence)
     return(list(category="unknown"));
 }
 
+save.data <- function(assets, day1, day2)
+{
+    price.data <- {};
+    days <- {};
+    database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
+                         dbname='market', host="localhost");
+    for (i in 1:length(assets)) {
+        stmt <- sprintf(
+            "select tm, high, low, closing from %s_daily where tm between '%s' and '%s'",
+            assets[i], day1, day2
+        );
+        rs <- dbSendQuery(database, stmt);
+        X <- fetch(rs, n=-1);
+        dbClearResult(rs);
+        if (length(price.data) == 0) {
+            price.data <- as.matrix(X[, -1]);
+            days <- X$tm;
+        } else {
+            price.data <- abind(price.data, as.matrix(X[, -1]), along=3);
+        }
+    }
+    save(days, price.data, file="DailyPrices.RData");
+    dbDisconnect(database);
+}
+
 
