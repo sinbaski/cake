@@ -88,9 +88,10 @@ algo.arma <- function(params, exposure.max, Y, E)
         return(rep(0, p));
     }
     i <- which.max(abs(metrics[, 3]));
-    exposure <- min(params$loss.tol/metrics[i, 4], exposure.max/sum(abs(E$vectors[, i])));
     shares <- rep(0, p);
-    if (abs(metrics[i, 3]) > params$score.min) {
+    T <- tryCatch(t.test(Y[, i]), error=function(e) list(p.value=1));
+    if (abs(metrics[i, 3]) > params$score.min && T$p.value < params$ret.conf) {
+        exposure <- min(params$loss.tol/metrics[i, 4], exposure.max/sum(abs(E$vectors[, i])));
         shares <- sign(metrics[i, 1]) * exposure *
             E$vectors[, i]/tail(prices[, params$include], n=1);
         ## block short positions
@@ -191,7 +192,7 @@ qrm <- function(thedate)
     return(list(mean=forecast[, 1], cov.mtx=C));
 }
 
-trade <- function(thedate, confidence=0.01, risk.tol=5.0e-3)
+trade <- function(thedate, confidence=0.01, risk.tol=1.0e-2)
 {
     p <- dim(prices)[2];
     n <- dim(prices)[1];
@@ -287,6 +288,7 @@ gen.strat <- function(T1.max, T2.max, include, holding)
 
     gda <- runif(1, min=0.05, max=1);
     score.min <- runif(1, min=1.0e-3, max=1.0e-2);
+    ret.conf <-runif(1, min=0.2, max=0.45);
     if (sum(is.na(include)) >= 1) {
         ## include <- sample(c(TRUE, FALSE), size=length(symbols),
         ##                   prob=c(0.5, 0.5), replace=TRUE);
@@ -302,7 +304,7 @@ gen.strat <- function(T1.max, T2.max, include, holding)
     ## include <- rep(FALSE, length(symbols));
     ## include[i] <- TRUE;
 
-    LO <- rep(TRUE, length(symbols));
+    LO <- rep(FALSE, length(symbols));
     ## LO <- sample(c(TRUE, FALSE), size=length(symbols),
     ##              prob=c(0.5, 0.5), replace=TRUE);
     ## loss.tol <- runif(1, min=1.0e-3, max=5.0e-3);
@@ -311,6 +313,8 @@ gen.strat <- function(T1.max, T2.max, include, holding)
                    T2=T2,
                    gda=gda,
                    score.min=score.min,
+                   ret.conf=ret.conf,
+                   ## The following are more often fixed than not
                    include=include,
                    LO=LO,
                    loss.tol=loss.tol
@@ -527,7 +531,7 @@ DD <- rep(NA, length(days));
 require(foreach);
 require(doParallel);
 ## require(doMC);
-cl <- makeCluster(7);
+cl <- makeCluster(detectCores() * 7 / 8);
 registerDoParallel(cl);
 
 
@@ -536,7 +540,7 @@ registerDoParallel(cl);
 t0 <- 252;
 t1 <- t0;
 exposure.max <- 1;
-strats <- vector("list", length=10);
+strats <- vector("list", length=1000);
 for (i in 1:length(strats)) {
     strats[[i]] <- gen.strat(
         T1.max=60,
