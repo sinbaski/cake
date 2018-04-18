@@ -29,6 +29,13 @@ acf.test <- function(X, lag=1)
     return(list(estimate=r, p.value=p.value));
 }
 
+rdsct.exp <- function(n, q)
+{
+    U <- runif(n);
+    S <- sample(c(-1, 1), size=n, replace=TRUE, prob=c(1, 1));
+    return(S * floor(log(1-U)/log(q)));
+}
+
 fit.arma <- function(X, order.max=c(1,1), include.mean=NA)
 {
     bic <- Inf;
