@@ -10,6 +10,7 @@ population.size <- 500;
 T1.min <- 15;
 T1.max <- 45;
 loss.tol <- 5.0e-3;
+time.span <- "daily";
 
 num.cores <- 6;
 
@@ -104,9 +105,9 @@ qrm <- function(thedate)
     for (i in 1:p) {
         if (use.database) {
             stmt <- sprintf(paste(
-                "select high, low, closing from %s_daily where",
+                "select high, low, closing from %s_%s where",
                 "datediff('%s', tm) >= 0 order by tm desc limit %d;"),
-                symbols[i], thedate, dim(S)[1]);
+                symbols[i], time.span, thedate, dim(S)[1]);
             rs <- dbSendQuery(database, stmt);
             S[, i, ] <- apply(as.matrix(fetch(rs, n=-1)), MARGIN=2, FUN=rev);
             dbClearResult(rs);
@@ -359,32 +360,40 @@ get.data <- function(assets, day1, day2)
     if (use.database) {
         database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
                              dbname='market', host="localhost");
-        stmt <- sprintf("select %s_daily.closing", assets[1]);
+        stmt <- sprintf("select %s_%s.closing", assets[1], time.span);
         for (i in 2:length(assets)) {
-            stmt <- paste(stmt, sprintf("%s_daily.closing", assets[i]), sep=",")
+            stmt <- paste(stmt,
+                          sprintf("%s_%s.closing", assets[i], time.span),
+                          sep=",");
         }
-        stmt <- paste(stmt, sprintf("from %s_daily", assets[1]));
+        stmt <- paste(stmt, sprintf("from %s_%s", assets[1], time.span));
         for (i in 2:length(assets)) {
-            stmt <- paste(stmt, sprintf("%s_daily", assets[i]), sep=" join ");
+            stmt <- paste(stmt,
+                          sprintf("%s_%s", assets[i], time.span),
+                          sep=" join ");
         }
         stmt <- paste(
             stmt,
-            sprintf("on %s_daily.tm = %s_daily.tm", assets[1], assets[2])
+            sprintf("on %1$s_%3$s.tm = %2$s_%3$s.tm",
+                    assets[1], assets[2], time.span)
         );
-        for (i in 2:(length(assets)-1)) {
-            stmt <- paste(
-                stmt,
-                sprintf("%s_daily.tm = %s_daily.tm", assets[i], assets[i+1]),
-                sep=" and "
-            )
+        if (length(assets) > 2) {
+            for (i in 2:(length(assets)-1)) {
+                stmt <- paste(
+                    stmt,
+                    sprintf("%1$s_%3$s.tm = %2$s_%3$s.tm",
+                            assets[i], assets[i+1], time.span),
+                    sep=" and "
+                )
+            }
         }
         stmt <- paste(
             stmt,
             sprintf(
-                "where %s_daily.tm between '%s' and '%s'",
-                assets[1], day1, day2
+                "where %s_%s.tm between '%s' and '%s'",
+                assets[1], time.span, day1, day2
             ),
-            sprintf("order by %s_daily.tm;", assets[1])
+            sprintf("order by %s_%s.tm;", assets[1], time.span)
         );
         rs <- dbSendQuery(database, stmt);
         data <- fetch(rs, n=-1);
@@ -417,7 +426,7 @@ symbols <- c(
     ## "qqq",  ## Nasdaq
     ## "ezu",  ## Euro zone equities
     ## "ewg",  ## Germany
-    ## "ewj",  ## Japan
+    ## "ewj"  ## Japan
     ## "ewl",  ## Switzerland
     ## "ewn",  ## Netherlands
     ## "ewp",  ## Spain
@@ -427,17 +436,20 @@ symbols <- c(
     ## "fxb",  ## British pound
     ## "fxc",  ## Canadian dollar
     ## "fxe",  ## euro
-    ## "fxy"  ## Japanese yen
+    ## "fxy",  ## Japanese yen
     ## "goog", ## Google
     ## "aapl",    ## Apple inc.
     ## "iau",  ## gold
-    ## "slv"  ## silver
+    ## "slv",  ## silver
     ## "uso",  ## US oil fund
     ## "ung"   ## US natural gas fund
     ## "dba",
-    "jjg",
+    ## "jjg",
     "weat",
-    "soyb"
+    ## "soyb",
+    "cane",
+    "corn",
+    "nib"
     ## "vxx"  ## SP500 short term volatility
     ## "vixy", ## SP500 short term volatility
     ## "vxz",  ## SP500 mid term volatility
@@ -453,14 +465,20 @@ if (!use.database) {
 
     ## spy, ewg, ewj
     ## rs <- dbSendQuery(database,
-    ##                   paste(sprintf("select tm from %s_daily ", symbols[1]),
-    ##                         "where tm between '2009-01-30' and '2018-03-16';"
+    ##                   paste(sprintf("select tm from %s_%s ", symbols[1], time.span),
+    ##                         "where tm between '2011-09-19' and '2018-03-16';"
     ##                         ));
-    ## jjg, weat, soyb
+
+    ## cane, corn, nib, weat
     rs <- dbSendQuery(database,
-                      paste(sprintf("select tm from %s_daily ", symbols[1]),
+                      paste(sprintf("select tm from %s_%s ", symbols[1], time.span),
                             "where tm between '2011-09-19' and '2018-04-02';"
                             ));
+    ## jjg, weat, soyb
+    ## rs <- dbSendQuery(database,
+    ##                   paste(sprintf("select tm from %s_daily ", symbols[1]),
+    ##                         "where tm between '2011-09-19' and '2018-04-02';"
+    ##                         ));
     days <- fetch(rs, n=-1)[[1]];
     dbClearResult(rs);
 
@@ -593,6 +611,7 @@ for (tm in t0:length(days)) {
     ##     strats <- sample.strats(length(strats), weights);
     ##     prices <- update.prices(tm);
     ## }
+
     strats <- sample.strats(length(strats), weights);
     prices <- update.prices(tm);
 
