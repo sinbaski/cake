@@ -312,7 +312,7 @@ gen.strat <- function(interval=NA)
     return(list(params=params, holding=holding));
 }
 
-sample.strats <- function(n, probs)
+sample.strats <- function(n, probs, q)
 {
     strats.new <- vector("list", length=n);
     for (i in 1:n) {
@@ -327,7 +327,8 @@ sample.strats <- function(n, probs)
         ## sig <- 0.4824237;
         ## sig <- 0.5;
         ## mutation <- round(rnorm(1, mean=0, sd=sig));
-        mutation <- sample(c(-1, 0, 1), size=1, prob=c(0.1, 0.8, 0.1));
+        ## mutation <- sample(c(-1, 0, 1), size=1, prob=c(0.1, 0.8, 0.1));
+        mutation <- rdsct.exp(1, q);
         val <- max(T1.min, strats[[f]]$params$T1 + mutation);
         strats.new[[i]]$params$T1 <- val;
         strats.new[[i]]$params$sharpe.min <- strats[[m]]$params$sharpe.min;
@@ -543,14 +544,6 @@ for (tm in t0:length(days)) {
         ret[i] <- W[i]/x - 1;
         timescales[i] <- strats[[i]]$params$T1;
     }
-    if (length(unique(ret)) == 1) {
-        weights <- rep(1, length(strats));
-    } else {
-        ## weights <- exp((ret - mean(ret))/(10 * sd(ret)));
-        ## weights <- exp(5e+4 * sd(ret) * ret);
-        weights <- exp(20 * ret);
-    }
-
     if (tm - t0 >= status$lookback + 1) {
         R <- sapply((tm-status$lookback+1):tm, FUN=function(k) {
             V[k]/V[k-1] - 1;
@@ -559,6 +552,15 @@ for (tm in t0:length(days)) {
     } else {
         ret.fcst[tm] <- NA;
     }
+
+    factor <- if (is.na(ret.fcst[tm])) 0.5 else 1 - pnorm(500 * ret.fcst[tm]);
+    if (length(unique(ret)) == 1) {
+        weights <- rep(1, length(strats));
+    } else {
+        weights <- exp(factor * 50 * ret);
+    }
+    weights <- weights/mean(weights);
+    q <- factor/4;
 
     tau <- kendall(HHistory);
     Q <- quantile(timescales, probs=c(0.5, 0.95));
@@ -575,7 +577,7 @@ for (tm in t0:length(days)) {
     cat("    coverage: ", min(timescales), Q[1],
         mean(timescales), Q[2], max(timescales), "\n");
     cat("    tau: ", tau, "\n");
-    cat("    forecast: ", ret.fcst[tm], "\n");
+    cat("    forecast: ", ret.fcst[tm], "    q =", q, "\n");
     cat("    leverage: ", exp(1000 * ret.fcst[tm]), "\n");
 
     ## if (!is.na(ret.fcst[tm]) && ret.fcst[tm] < 0 &&
@@ -593,7 +595,10 @@ for (tm in t0:length(days)) {
     ##     strats <- sample.strats(length(strats), weights);
     ##     prices <- update.prices(tm);
     ## }
-    strats <- sample.strats(length(strats), weights);
+    ## q <- 0.2 * 2^(-0.5e+3 * A);
+
+    stopifnot(q < 0.5);
+    strats <- sample.strats(length(strats), weights, q);
     prices <- update.prices(tm);
 
     outcome <- trade(days[tm]);
