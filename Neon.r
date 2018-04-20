@@ -7,9 +7,13 @@ source("~/cake/libeix.r");
 set.seed(0);
 
 population.size <- 500;
+mut.rate <- 0.15;
+exposure.max <- 1.5;
+
 T1.min <- 15;
 T1.max <- 45;
 loss.tol <- 5.0e-3;
+
 
 num.cores <- 6;
 
@@ -424,11 +428,11 @@ symbols <- c(
     ## "ewp",  ## Spain
     ## "ewq",  ## France
     ## "ewu",  ## UK
-    ## "uup",  ## USD
+    "uup",  ## USD
     ## "fxb",  ## British pound
     ## "fxc",  ## Canadian dollar
-    ## "fxe",  ## euro
-    ## "fxy"  ## Japanese yen
+    "fxe",  ## euro
+    "fxy"  ## Japanese yen
     ## "goog", ## Google
     ## "aapl",    ## Apple inc.
     ## "iau",  ## gold
@@ -436,9 +440,12 @@ symbols <- c(
     ## "uso",  ## US oil fund
     ## "ung"   ## US natural gas fund
     ## "dba",
-    "jjg",
-    "weat",
-    "soyb"
+    ## "jjg",
+    ## "corn",
+    ## "weat",
+    ## "soyb",
+    ## "cane",
+    ## "nib"
     ## "vxx"  ## SP500 short term volatility
     ## "vixy", ## SP500 short term volatility
     ## "vxz",  ## SP500 mid term volatility
@@ -457,11 +464,18 @@ if (!use.database) {
     ##                   paste(sprintf("select tm from %s_daily ", symbols[1]),
     ##                         "where tm between '2009-01-30' and '2018-03-16';"
     ##                         ));
-    ## jjg, weat, soyb
+
+    ## uup, fxe, fxy
     rs <- dbSendQuery(database,
                       paste(sprintf("select tm from %s_daily ", symbols[1]),
-                            "where tm between '2011-09-19' and '2018-04-02';"
+                            "where tm between '2011-09-19' and '2018-03-19';"
                             ));
+
+    ## jjg, weat, soyb
+    ## rs <- dbSendQuery(database,
+    ##                   paste(sprintf("select tm from %s_daily ", symbols[1]),
+    ##                         "where tm between '2011-09-19' and '2018-04-02';"
+    ##                         ));
     days <- fetch(rs, n=-1)[[1]];
     dbClearResult(rs);
 
@@ -511,7 +525,8 @@ t0 <- 237;
 t1 <- t0;
 V[t0] <- 1;
 p <- length(symbols);
-exposure.max <- 1;
+
+weight.exp <- 30;
 strats <- vector("list", length=population.size);
 for (i in 1:length(strats)) {
     strats[[i]] <- gen.strat();
@@ -544,23 +559,31 @@ for (tm in t0:length(days)) {
         ret[i] <- W[i]/x - 1;
         timescales[i] <- strats[[i]]$params$T1;
     }
+    stats <- list(mean=NA, sd=NA);
+    lever <- 1;
     if (tm - t0 >= status$lookback + 1) {
         R <- sapply((tm-status$lookback+1):tm, FUN=function(k) {
             V[k]/V[k-1] - 1;
         });
-        ret.fcst[tm] <- mean(R);
-    } else {
-        ret.fcst[tm] <- NA;
+        stats$mean <- mean(R);
+        stats$sd <- sd(R);
+        ## lever <- exp(1000 * stats$mean);
     }
 
-    factor <- if (is.na(ret.fcst[tm])) 0.5 else 1 - pnorm(500 * ret.fcst[tm]);
+    ## if (!is.na(stats$mean) && tm - t1 > status$lookback) {
+    ##     ## weight.exp <- 2.0e+4 * stats$sd;
+    ##     ## weight.exp <- 2/sqrt(stats$sd);
+    ##     weight.exp <- -20 * stats$mean/stats$sd;
+    ##     t1 <- tm;
+    ## }
     if (length(unique(ret)) == 1) {
         weights <- rep(1, length(strats));
     } else {
-        weights <- exp(factor * 50 * ret);
+        ## weights <- exp(weight.exp * ret);
+        F <- ecdf(ret);
+        weights <- F(ret);
     }
-    weights <- weights/mean(weights);
-    q <- factor/4;
+    ## weights <- weights/mean(weights);
 
     tau <- kendall(HHistory);
     Q <- quantile(timescales, probs=c(0.5, 0.95));
@@ -573,14 +596,15 @@ for (tm in t0:length(days)) {
     cat("    weights quantiles: ",
         quantile(weights, probs=c(0.02, 0.16, 0.5, 0.84, 0.98)), "\n"
         );
+    cat("    weight.exp: ", weight.exp, "\n");
     cat(sprintf("    E(W): %.3f (%.3fe-2)\n", mean(W), (mean(W) - 1) * 100));
     cat("    coverage: ", min(timescales), Q[1],
         mean(timescales), Q[2], max(timescales), "\n");
     cat("    tau: ", tau, "\n");
-    cat("    forecast: ", ret.fcst[tm], "    q =", q, "\n");
-    cat("    leverage: ", exp(1000 * ret.fcst[tm]), "\n");
+    cat("    mean: ", stats$mean, "\n");
+    cat("    sd: ", stats$sd, "\n");
 
-    ## if (!is.na(ret.fcst[tm]) && ret.fcst[tm] < 0 &&
+    ## if (!is.na(stats$mean) && stats$mean < 0 &&
     ##     tm - t1 > status$lookback && ) {
     ##     cat("    expand coverage.\n");
     ##     ## cat("    regenerate.\n");
@@ -597,8 +621,8 @@ for (tm in t0:length(days)) {
     ## }
     ## q <- 0.2 * 2^(-0.5e+3 * A);
 
-    stopifnot(q < 0.5);
-    strats <- sample.strats(length(strats), weights, q);
+    stopifnot(mut.rate < 0.5);
+    strats <- sample.strats(length(strats), weights, mut.rate);
     prices <- update.prices(tm);
 
     outcome <- trade(days[tm]);
@@ -620,12 +644,18 @@ for (tm in t0:length(days)) {
     }
     save.stats(days[tm], ret);
 
-    if (is.na(ret.fcst[tm])) {
-        assets[2, ] <- c(rep(0, p), 1);
-    } else {
-        assets[2, 1:p] <- assets[1, 1:p] * exp(ret.fcst[tm] * 1000);
-        assets[2, p+1] <- 1 - sum(tail(prices, n=1) * assets[2, 1:p]);
-    }
+    ## if (is.na(stats$mean)) {
+    ##     assets[2, ] <- c(rep(0, p), 1);
+    ##     cat("    leverage: ", 1, "\n");
+    ## } else {
+    ##     c <- exposure.max/sum(abs(assets[1, 1:p]) * tail(prices, n=1));
+    ##     lever <- min(c, lever);
+    ##     assets[2, 1:p] <- assets[1, 1:p] * lever;
+    ##     assets[2, p+1] <- 1 - sum(tail(prices, n=1) * assets[2, 1:p]);
+    ##     cat("    leverage: ", min(lever, c), "\n");
+    ## }
+    assets[2, ] <- assets[1, ];
+
     assets[1, ] <- assets[1, ] * V[tm];
     assets[2, ] <- assets[2, ] * wealth[tm];
     send.trade(days[tm], wealth[tm], assets[2, ]);
