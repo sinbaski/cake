@@ -445,7 +445,7 @@ symbols <- c(
     ## "ung"   ## US natural gas fund
     ## "dba",
     ## "jjg",
-    "weat",
+    ## "weat",
     ## "soyb",
     "cane",
     "corn",
@@ -579,7 +579,7 @@ for (tm in t0:length(days)) {
     }
 
     tau <- kendall(HHistory);
-    Q <- quantile(timescales, probs=c(0.5, 0.95));
+    Q <- quantile(timescales, probs=c(0.05, 0.95));
     cat("\n", sprintf("On day %d, %s, DD=%.3f, value = %.3f, wealth = %.3f\n",
                       tm, days[tm], DD[tm], V[tm], wealth[tm]));
     cat(sprintf("    ret: %.3fe-2, %.3fe-2\n", mean(ret)*100, sd(ret)*100));
