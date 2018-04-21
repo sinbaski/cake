@@ -16,6 +16,7 @@ T1.maxmin <- 25;
 loss.tol <- 5.0e-3;
 
 num.cores <- 6;
+time.span <- "daily";
 
 strats <- vector("list", length=population.size);
 
@@ -436,32 +437,40 @@ get.data <- function(assets, day1, day2)
     if (use.database) {
         database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
                              dbname='market', host="localhost");
-        stmt <- sprintf("select %s_daily.closing", assets[1]);
+        stmt <- sprintf("select %s_%s.closing", assets[1], time.span);
         for (i in 2:length(assets)) {
-            stmt <- paste(stmt, sprintf("%s_daily.closing", assets[i]), sep=",")
+            stmt <- paste(stmt,
+                          sprintf("%s_%s.closing", assets[i], time.span),
+                          sep=",");
         }
-        stmt <- paste(stmt, sprintf("from %s_daily", assets[1]));
+        stmt <- paste(stmt, sprintf("from %s_%s", assets[1], time.span));
         for (i in 2:length(assets)) {
-            stmt <- paste(stmt, sprintf("%s_daily", assets[i]), sep=" join ");
+            stmt <- paste(stmt,
+                          sprintf("%s_%s", assets[i], time.span),
+                          sep=" join ");
         }
         stmt <- paste(
             stmt,
-            sprintf("on %s_daily.tm = %s_daily.tm", assets[1], assets[2])
+            sprintf("on %1$s_%3$s.tm = %2$s_%3$s.tm",
+                    assets[1], assets[2], time.span)
         );
-        for (i in 2:(length(assets)-1)) {
-            stmt <- paste(
-                stmt,
-                sprintf("%s_daily.tm = %s_daily.tm", assets[i], assets[i+1]),
-                sep=" and "
-            )
+        if (length(assets) > 2) {
+            for (i in 2:(length(assets)-1)) {
+                stmt <- paste(
+                    stmt,
+                    sprintf("%1$s_%3$s.tm = %2$s_%3$s.tm",
+                            assets[i], assets[i+1], time.span),
+                    sep=" and "
+                )
+            }
         }
         stmt <- paste(
             stmt,
             sprintf(
-                "where %s_daily.tm between '%s' and '%s'",
-                assets[1], day1, day2
+                "where %s_%s.tm between '%s' and '%s'",
+                assets[1], time.span, day1, day2
             ),
-            sprintf("order by %s_daily.tm;", assets[1])
+            sprintf("order by %s_%s.tm;", assets[1], time.span)
         );
         rs <- dbSendQuery(database, stmt);
         data <- fetch(rs, n=-1);
@@ -474,7 +483,6 @@ get.data <- function(assets, day1, day2)
         prices <- price.data[i:j, 3, ];
         return(list(prices=prices));
     }
-
 }
 
 update.prices <- function(tm)
@@ -500,24 +508,24 @@ symbols <- c(
     ## "ewp",  ## Spain
     ## "ewq",  ## France
     ## "ewu",  ## UK
-    "uup",  ## USD
+    ## "uup",  ## USD
     ## "fxb",  ## British pound
     ## "fxc",  ## Canadian dollar
-    "fxe",  ## euro
-    "fxy"  ## Japanese yen
+    ## "fxe",  ## euro
+    ## "fxy"  ## Japanese yen
     ## "goog", ## Google
     ## "aapl",    ## Apple inc.
     ## "iau",  ## gold
-    ## "slv"  ## silver
+    ## "slv",  ## silver
     ## "uso",  ## US oil fund
     ## "ung"   ## US natural gas fund
     ## "dba",
-    ## "jjg",
-    ## "corn",
-    ## "weat",
-    ## "soyb",
-    ## "cane",
-    ## "nib"
+    "jjg",
+    "corn",
+    "weat",
+    "soyb",
+    "cane",
+    "nib"
     ## "vxx"  ## SP500 short term volatility
     ## "vixy", ## SP500 short term volatility
     ## "vxz",  ## SP500 mid term volatility
@@ -536,12 +544,17 @@ if (!use.database) {
     ##                   paste(sprintf("select tm from %s_daily ", symbols[1]),
     ##                         "where tm between '2011-09-19' and '2018-03-16';"
     ##                         ));
-
-    ## uup, fxe, fxy
+    ## iau, slv
     rs <- dbSendQuery(database,
                       paste(sprintf("select tm from %s_daily ", symbols[1]),
-                            "where tm between '2011-09-19' and '2018-03-19';"
+                            "where tm between '2016-01-02' and '2018-03-16';"
                             ));
+
+    ## uup, fxe, fxy
+    ## rs <- dbSendQuery(database,
+    ##                   paste(sprintf("select tm from %s_daily ", symbols[1]),
+    ##                         "where tm between '2011-09-19' and '2018-03-19';"
+    ##                         ));
 
     ## jjg, weat, soyb
     ## rs <- dbSendQuery(database,
@@ -551,33 +564,33 @@ if (!use.database) {
     days <- fetch(rs, n=-1)[[1]];
     dbClearResult(rs);
 
-    ## rs <- dbSendQuery(database, "drop table if exists StratsRet;");
-    ## dbClearResult(rs);
-    ## stmt <- paste(
-    ##     "create table StratsRet (",
-    ##     "tm date, T1 tinyint unsigned, sm float, ret double);"
-    ## );
-    ## rs <- dbSendQuery(database, stmt);
-    ## dbClearResult(rs);
+    rs <- dbSendQuery(database, "drop table if exists StratsRet;");
+    dbClearResult(rs);
+    stmt <- paste(
+        "create table StratsRet (",
+        "tm date, T1 tinyint unsigned, sm float, ret double);"
+    );
+    rs <- dbSendQuery(database, stmt);
+    dbClearResult(rs);
 
-    ## rs <- dbSendQuery(database, "drop table if exists trade_log;");
-    ## dbClearResult(rs);
+    rs <- dbSendQuery(database, "drop table if exists trade_log;");
+    dbClearResult(rs);
 
-    ## stmt <- paste(
-    ##     "create table trade_log (",
-    ##     "tm date primary key,",
-    ##     "worth double"
-    ## );
-    ## for (i in 1:length(symbols)) {
-    ##     stmt <- paste(
-    ##         stmt,
-    ##         sprintf("%1$s_p double not null, %1$s_q double not null", symbols[i]),
-    ##         sep=","
-    ##     );
-    ## }
-    ## stmt <- paste(stmt, ");");
-    ## rs <- dbSendQuery(database, stmt);
-    ## dbClearResult(rs);
+    stmt <- paste(
+        "create table trade_log (",
+        "tm date primary key,",
+        "worth double"
+    );
+    for (i in 1:length(symbols)) {
+        stmt <- paste(
+            stmt,
+            sprintf("%1$s_p double not null, %1$s_q double not null", symbols[i]),
+            sep=","
+        );
+    }
+    stmt <- paste(stmt, ");");
+    rs <- dbSendQuery(database, stmt);
+    dbClearResult(rs);
     dbDisconnect(database);
 }
 
@@ -594,9 +607,9 @@ wealth <- rep(1, length(days));
 wealth.max <- rep(1, length(days));
 
 
-t0 <- 1547;
+t0 <- 100;
 t1 <- t0;
-V[t0] <- 1.279994;
+V[t0] <- 1;
 p <- length(symbols);
 
 for (i in 1:length(strats)) {
