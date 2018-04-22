@@ -354,31 +354,30 @@ sample.strats <- function(n, ret)
     if (length(unique(ret)) == 1) {
         probs <- rep(1, length(ret));
     } else {
-        database = dbConnect(
-            MySQL(), user='sinbaski', password='q1w2e3r4',
-            dbname='market', host="localhost"
-        );
-        rs <- dbSendQuery(
-            database,
-            paste(
-                "select distinct tm as A from StratsRet order by A desc limit 2"
-            )
-        );
-        D <- tail(fetch(rs, n=-1)$A, n=1);
-        dbClearResult(rs);
+        ## database = dbConnect(
+        ##     MySQL(), user='sinbaski', password='q1w2e3r4',
+        ##     dbname='market', host="localhost"
+        ## );
+        ## rs <- dbSendQuery(
+        ##     database,
+        ##     paste(
+        ##         "select distinct tm as A from StratsRet order by A desc limit 2"
+        ##     )
+        ## );
+        ## D <- tail(fetch(rs, n=-1)$A, n=1);
+        ## dbClearResult(rs);
 
-        rs <- dbSendQuery(
-            database,
-            paste(
-                "select distinct ret as R from StratsRet where tm >= '", D, "';"
-            )
-        );
-        X <- fetch(rs, n=-1)$R;
-        dbClearResult(rs);
-        dbDisconnect(database);
-        X <- unique(c(X, ret));
-        probs <- pnorm(ret, mean=mean(X), sd=sd(X));
+        ## rs <- dbSendQuery(
+        ##     database,
+        ##     paste(
+        ##         "select distinct ret as R from StratsRet where tm >= '", D, "';"
+        ##     )
+        ## );
+        ## X <- fetch(rs, n=-1)$R;
+        ## dbClearResult(rs);
+        ## dbDisconnect(database);
 
+        ## X <- unique(c(X, ret));
         ## if (length(X) < 50) {
         ##     probs <- pnorm(ret, mean=mean(X), sd=sd(X));
         ## } else if (length(X) <= 5000) {
@@ -391,6 +390,7 @@ sample.strats <- function(n, ret)
         ## } else {
         ##     probs <- ecdf(X)(ret);
         ## }
+        probs <- ecdf(ret);
     }
     strats.new <- vector("list", n);
     for (i in 1:length(strats.new)) {
