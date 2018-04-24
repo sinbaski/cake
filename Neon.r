@@ -70,6 +70,8 @@ propose.trade <- function(T1, exposure.max, Y, E)
         exposure.max/sum(abs(E$vectors[, i]))
     );
     shares <- sign(metrics[i, 1]) * exposure * E$vectors[, i]/tail(prices, n=1);
+    ## Long-only
+    ## shares[shares < 0] <- 0;
     return(list(comb=shares, sharpe=metrics[i, 3]));
 }
 
@@ -348,36 +350,36 @@ gen.strat <- function(interval=NA)
 ##     return(strats.new);
 ## }
 
-sample.strats <- function(n, ret)
+sample.strats <- function(n, weight.exp, ret)
 {
     probs <- rep(NA, length(ret));
     if (length(unique(ret)) == 1) {
         probs <- rep(1, length(ret));
+        cat("    weight exponent: ", 0, "\n");
     } else {
-        database = dbConnect(
-            MySQL(), user='sinbaski', password='q1w2e3r4',
-            dbname='market', host="localhost"
-        );
-        rs <- dbSendQuery(
-            database,
-            paste(
-                "select distinct tm as A from StratsRet order by A desc limit 2"
-            )
-        );
-        D <- tail(fetch(rs, n=-1)$A, n=1);
-        dbClearResult(rs);
+        ## database = dbConnect(
+        ##     MySQL(), user='sinbaski', password='q1w2e3r4',
+        ##     dbname='market', host="localhost"
+        ## );
+        ## rs <- dbSendQuery(
+        ##     database,
+        ##     paste(
+        ##         "select distinct tm as A from StratsRet order by A desc limit 2"
+        ##     )
+        ## );
+        ## D <- tail(fetch(rs, n=-1)$A, n=1);
+        ## dbClearResult(rs);
 
-        rs <- dbSendQuery(
-            database,
-            paste(
-                "select distinct ret as R from StratsRet where tm >= '", D, "';"
-            )
-        );
-        X <- fetch(rs, n=-1)$R;
-        dbClearResult(rs);
-        dbDisconnect(database);
-        X <- unique(c(X, ret));
-        probs <- pnorm(ret, mean=mean(X), sd=sd(X));
+        ## rs <- dbSendQuery(
+        ##     database,
+        ##     paste(
+        ##         "select distinct ret as R from StratsRet where tm >= '", D, "';"
+        ##     )
+        ## );
+        ## X <- fetch(rs, n=-1)$R;
+        ## dbClearResult(rs);
+        ## dbDisconnect(database);
+        ## X <- unique(c(X, ret));
 
         ## if (length(X) < 50) {
         ##     probs <- pnorm(ret, mean=mean(X), sd=sd(X));
@@ -391,7 +393,30 @@ sample.strats <- function(n, ret)
         ## } else {
         ##     probs <- ecdf(X)(ret);
         ## }
+
+        ## works with uup, fxe, fxy,
+        ## probs <- ecdf(ret)(ret);
+
+        ## Works with jjg, weat, soyb
+        ## fails with uup, iau, slv
+        ## r <- 1;
+        ## a <- mean(exp(ret));
+        ## b <- mean(exp(100 * ret));
+        ## if (a > 1) {
+        ##     r <- 1;
+        ## } else if (a < 1 && b > 1) {
+        ##     sol <- uniroot(f=function(x) mean(exp(x * ret)) - 1,
+        ##                    interval=c(1, 100));
+        ##     r <- sol$root;
+        ## } else {
+        ##     r <- 100;
+        ## }
+        ## probs <- exp(r * ret);
+        ## cat("    weight exponent: ", r, "\n");
+        cat("    weight exponent: ", weight.exp, "\n");
+        probs <- exp(weight.exp * ret);
     }
+
     strats.new <- vector("list", n);
     for (i in 1:length(strats.new)) {
         mother <- sample(
@@ -502,23 +527,23 @@ symbols <- c(
     ## "ewp",  ## Spain
     ## "ewq",  ## France
     ## "ewu",  ## UK
-    "uup",  ## USD
+    ## "uup",  ## USD
     ## "fxb",  ## British pound
     ## "fxc",  ## Canadian dollar
-    "fxe",  ## euro
-    "fxy"  ## Japanese yen
+    ## "fxe",  ## euro
+    ## "fxy"  ## Japanese yen
     ## "goog", ## Google
     ## "aapl",    ## Apple inc.
     ## "iau",  ## gold
-    ## "slv",  ## silver
+    ## "slv"  ## silver
     ## "uso",  ## US oil fund
     ## "ung"   ## US natural gas fund
     ## "dba",
-    ## "jjg",
+    "jjg",
     ## "corn",
-    ## "weat",
-    ## "soyb"
-    ## "cane",
+    "weat",
+    "soyb"
+    ## "cane"
     ## "nib"
     ## "vxx"  ## SP500 short term volatility
     ## "vixy", ## SP500 short term volatility
@@ -541,20 +566,21 @@ if (!use.database) {
     ## iau, slv
     ## rs <- dbSendQuery(database,
     ##                   paste(sprintf("select tm from %s_daily ", symbols[1]),
-    ##                         "where tm between '2016-01-02' and '2018-03-16';"
+    ##                         "where tm between '2011-09-19' and '2018-03-29';"
     ##                         ));
 
     ## uup, fxe, fxy
-    rs <- dbSendQuery(database,
-                      paste(sprintf("select tm from %s_daily ", symbols[1]),
-                            "where tm between '2011-09-19' and '2018-03-19';"
-                            ));
-
-    ## jjg, weat, soyb
     ## rs <- dbSendQuery(database,
     ##                   paste(sprintf("select tm from %s_daily ", symbols[1]),
-    ##                         "where tm between '2011-09-19' and '2018-04-02';"
-    ##                         ));
+    ##                         "where tm between '2011-09-19' and '2018-03-19';"
+    ##                        ));
+
+    ## jjg, weat, soyb
+    rs <- dbSendQuery(database,
+                      paste(sprintf("select tm from %s_daily ", symbols[1]),
+                            "where tm between '2011-09-19' and '2018-04-02';"
+                            ));
+
     days <- fetch(rs, n=-1)[[1]];
     dbClearResult(rs);
 
@@ -602,6 +628,7 @@ wealth.max <- rep(1, length(days));
 
 
 t0 <- 237;
+## t0 <- 61;
 t1 <- t0;
 V[t0] <- 1;
 p <- length(symbols);
@@ -615,7 +642,7 @@ assets <- matrix(
     nrow=2, ncol=1+p,
     byrow=TRUE
 );
-status <- list(lookback=T1.min, t1=t0);
+status <- list(lookback=T1.min);
 for (tm in t0:length(days)) {
     ## update prices
     prices <- update.prices(tm);
@@ -658,8 +685,16 @@ for (tm in t0:length(days)) {
     cat("    sd: ", stats$sd, "\n");
     cat("    leverage: ", lever, "\n");
 
-    if (tm > t0) {
-        candidates <- sample.strats(length(strats), ret);
+    ## weight.exp <- if (is.na(stats$sd)) 50 else stats$sd * 3.0e+4;
+    weight.exp <- 50;
+    if (tm - t1 == 50) {
+        for (i in 1:length(strats)) {
+            strats[[i]] <- gen.strat();
+        }
+        t1 <- tm;
+        cat("    regenerate.\n");
+    } else if (tm > t0) {
+        candidates <- sample.strats(length(strats), weight.exp, ret);
         timescales <- sapply(1:length(strats), FUN=function(i) {
             candidates[[i]]$params$T1;
         });
@@ -667,25 +702,25 @@ for (tm in t0:length(days)) {
             strats <- candidates;
         } else {
             N <- round(length(strats) * 0.618);
-            strats[1:N] <- sample.strats(N, ret);
+            strats[1:N] <- sample.strats(N, weight.exp, ret);
             for (i in (N+1):length(strats)) {
                 strats[[i]] <- gen.strat();
             }
             timescales <- sapply(1:length(strats), FUN=function(i) {
                 strats[[i]]$params$T1;
             });
-            cat("    regenerate.\n");
+            cat("    part regenerate.\n");
         }
     } else {
         timescales <- sapply(1:length(strats), FUN=function(i) {
             strats[[i]]$params$T1;
         });
     }
+    prices <- update.prices(tm);
     Q <- quantile(timescales, probs=c(0.05, 0.95));
     cat("    coverage: ", min(timescales), Q[1],
         mean(timescales), Q[2], max(timescales), "\n");
 
-    prices <- update.prices(tm);
     outcome <- trade(days[tm]);
     for (i in 1:length(strats)) {
         strats[[i]]$holding <- outcome$holding[i, ];

@@ -418,5 +418,3 @@ save.data <- function(assets, day1, day2)
     save(days, price.data, file="DailyPrices.RData");
     dbDisconnect(database);
 }
-
-
