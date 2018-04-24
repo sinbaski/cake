@@ -2,6 +2,7 @@ rm(list=ls());
 graphics.off();
 require(RMySQL);
 require(abind);
+require(rugarch)
 source("~/cake/libeix.r");
 
 set.seed(0);
@@ -46,25 +47,49 @@ propose.trade <- function(T1, exposure.max, Y, E)
     }
     d <- floor(log(dim(Y)[1]));
     for (i in 1:K) {
-        model <- fit.arma(Y[, i], order.max=c(d, d), include.mean=NA);
-        prediction <- predict(model, n.ahead=1);
-        if (length(model$coef) > 0) {
-            T <- tryCatch(t.test(Y[, i]), error=function(e) list(p.value=1));
-            mu <- prediction$pred[1];
-            sig <- prediction$se[1];
-            metrics[i, 1:2] <- c(mu, sig);
-            metrics[i, 3:4] <- SR(mu, sig);
+        ## model <- fit.arma(Y[, i], order.max=c(d, d), include.mean=NA);
+        ## prediction <- predict(model, n.ahead=1);
+        ## if (length(model$coef) > 0) {
+        ##     ## T <- tryCatch(t.test(Y[, i]), error=function(e) list(p.value=1));
+        ##     mu <- prediction$pred[1];
+        ##     sig <- prediction$se[1];
+        ##     metrics[i, 1:2] <- c(mu, sig);
+        ##     metrics[i, 3:4] <- SR(mu, sig);
+        ## } else {
+        ##     ## No gain expected. We don't gamble.
+        ##     metrics[i, 1] <- 0;
+        ##     metrics[i, 2] <- prediction$se[1];
+        ##     metrics[i, 3:4] <- NA;
+        ## }
+
+        metrics[i, 1:2] <- tryCatch ({
+            model <- autoarfima(Y[, i], distribution.model="norm",
+                                method="partial",
+                                solver="nlminb",
+                                solver.control=list(
+                                    rel.tol=1.0e-2
+                                    ## iter.max=100
+                                ));
+            Chi <- coef(model$fit);
+            pred <- arfimaforecast(model$fit, n.ahead=1);
+            c(fitted(pred), Chi["sigma"]);
+        }, warning=function(w) {
+            rep(NA, 2);
+        }, error=function(err) {
+            rep(NA, 2);
+        });
+        if (is.na(metrics[i, 1])) {
+            metrics[i, 3] <- NA;
+            metrics[i, 4] <- NA;
         } else {
-            ## No gain expected. We don't gamble.
-            metrics[i, 1] <- 0;
-            metrics[i, 2] <- prediction$se[1];
-            metrics[i, 3:4] <- NA;
+            metrics[i, 3:4] <- SR(metrics[i, 1], metrics[i, 2]);
         }
     }
     if (sum(!is.na(metrics[, 3])) == 0) {
-        return(list(comb=rep(0, p), sharpe=0));
+        return(c(rep(0, p), 0));
     }
-    i <- which.max(abs(metrics[, 3]));
+    J <- which(!is.na(metrics[, 3]));
+    i <- J[which.max(abs(metrics[J, 3]))];
     exposure <- min(
         loss.tol/metrics[i, 4],
         exposure.max/sum(abs(E$vectors[, i]))
@@ -72,7 +97,8 @@ propose.trade <- function(T1, exposure.max, Y, E)
     shares <- sign(metrics[i, 1]) * exposure * E$vectors[, i]/tail(prices, n=1);
     ## Long-only
     ## shares[shares < 0] <- 0;
-    return(list(comb=shares, sharpe=metrics[i, 3]));
+    ## return(list(comb=shares, sharpe=metrics[i, 3]));
+    return(c(shares, metrics[i, 3]));
 }
 
 factor.algo <- function(T1, exposure.max)
@@ -220,26 +246,29 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
     timescales <- unique(
         sapply(1:length(strats), FUN=function(i) strats[[i]]$params$T1)
     );
-    clusterExport(cl, c("prices", "strats", "exposure.max",
-                        "factor.algo", "propose.trade",
-                        "fit.arma", "loss.tol"));
-    proposals <- parLapply(
-        cl=cl, X=timescales, fun=function(l) {
+    clusterExport(cl, c("prices", "strats", "exposure.max", "fit.arma",
+                        "factor.algo", "propose.trade", "loss.tol"));
+    proposals <- foreach(
+        l=timescales,
+        .combine='rbind',
+        .packages=c("rugarch")
+        ## export=c("prices", "strats", "exposure.max",
+        ##          "factor.algo", "propose.trade", "loss.tol")
+    ) %dopar% {
             factor.algo(l, exposure.max);
-        }
-    );
-    holding <- t(sapply(X=1:length(strats), FUN=function(i) {
+    };
+    holding <- foreach(i=1:population.size, .combine='rbind') %dopar% {
         k <- which(timescales == strats[[i]]$params$T1);
-        if (abs(proposals[[k]]$sharpe) > strats[[i]]$params$sharpe.min) {
-            shares <- proposals[[k]]$comb * W[i];
+        if (abs(tail(proposals[k, ], n=1)) > strats[[i]]$params$sharpe.min) {
+            shares <- head(proposals[k, ], n=-1) * W[i];
             H <- rep(NA, p+1);
             H[p+1] <- W[i] - sum(shares * tail(prices, n=1));
             H[1:p] <- shares;
-            return(H);
+            H;
         } else {
-            return(c(rep(0, p), W[i]));
+            c(rep(0, p), W[i]);
         }
-    }));
+    };
     loading <- matrix(NA, nrow=length(strats), ncol=p);
     for (i in 1:dim(loading)[1]) {
         loading[i, ] <- holding[i, 1:p] * prices[n, ];
@@ -398,23 +427,24 @@ sample.strats <- function(n, weight.exp, ret)
         ## probs <- ecdf(ret)(ret);
 
         ## Works with jjg, weat, soyb
-        ## fails with uup, iau, slv
-        ## r <- 1;
-        ## a <- mean(exp(ret));
-        ## b <- mean(exp(100 * ret));
-        ## if (a > 1) {
-        ##     r <- 1;
-        ## } else if (a < 1 && b > 1) {
-        ##     sol <- uniroot(f=function(x) mean(exp(x * ret)) - 1,
-        ##                    interval=c(1, 100));
-        ##     r <- sol$root;
-        ## } else {
-        ##     r <- 100;
-        ## }
-        ## probs <- exp(r * ret);
-        ## cat("    weight exponent: ", r, "\n");
-        cat("    weight exponent: ", weight.exp, "\n");
-        probs <- exp(weight.exp * ret);
+        r <- 1;
+        a <- mean(exp(ret));
+        b <- mean(exp(100 * ret));
+        if (a > 1) {
+            r <- 1;
+        } else if (a < 1 && b > 1) {
+            sol <- uniroot(f=function(x) mean(exp(x * ret)) - 1,
+                           interval=c(1, 100));
+            r <- sol$root;
+        } else {
+            r <- 100;
+        }
+        probs <- exp(r * ret);
+        cat("    weight exponent: ", r, "\n");
+
+        ## not the best for jjg_weat_soyb nor uup_fxe_fxy
+        ## cat("    weight exponent: ", weight.exp, "\n");
+        ## probs <- exp(weight.exp * ret);
     }
 
     strats.new <- vector("list", n);
@@ -536,7 +566,7 @@ symbols <- c(
     ## "aapl",    ## Apple inc.
     ## "iau",  ## gold
     ## "slv"  ## silver
-    ## "uso",  ## US oil fund
+    ## "uso"  ## US oil fund
     ## "ung"   ## US natural gas fund
     ## "dba",
     "jjg",
@@ -572,8 +602,8 @@ if (!use.database) {
     ## uup, fxe, fxy
     ## rs <- dbSendQuery(database,
     ##                   paste(sprintf("select tm from %s_daily ", symbols[1]),
-    ##                         "where tm between '2011-09-19' and '2018-03-19';"
-    ##                        ));
+    ##                         "where tm between '2011-09-19' and '2018-03-20';"
+    ##                         ));
 
     ## jjg, weat, soyb
     rs <- dbSendQuery(database,
@@ -687,13 +717,14 @@ for (tm in t0:length(days)) {
 
     ## weight.exp <- if (is.na(stats$sd)) 50 else stats$sd * 3.0e+4;
     weight.exp <- 50;
-    if (tm - t1 == 50) {
-        for (i in 1:length(strats)) {
-            strats[[i]] <- gen.strat();
-        }
-        t1 <- tm;
-        cat("    regenerate.\n");
-    } else if (tm > t0) {
+    ## if (tm - t1 == 50) {
+    ##     for (i in 1:length(strats)) {
+    ##         strats[[i]] <- gen.strat();
+    ##     }
+    ##     t1 <- tm;
+    ##     cat("    regenerate.\n");
+    ## } else
+    if (tm > t0) {
         candidates <- sample.strats(length(strats), weight.exp, ret);
         timescales <- sapply(1:length(strats), FUN=function(i) {
             candidates[[i]]$params$T1;
