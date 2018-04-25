@@ -420,7 +420,7 @@ sample.strats <- function(n, weight.exp, ret)
         ## } else {
         ##     probs <- ecdf(X)(ret);
         ## }
-        probs <- ecdf(ret);
+        probs <- ecdf(ret)(ret);
 
         ## works with uup, fxe, fxy,
         ## probs <- ecdf(ret)(ret);
@@ -552,11 +552,11 @@ symbols <- c(
     ## "ewp",  ## Spain
     ## "ewq",  ## France
     ## "ewu",  ## UK
-    ## "uup",  ## USD
+    "uup",  ## USD
     ## "fxb",  ## British pound
     ## "fxc",  ## Canadian dollar
-    ## "fxe",  ## euro
-    ## "fxy"  ## Japanese yen
+    "fxe",  ## euro
+    "fxy"  ## Japanese yen
     ## "goog", ## Google
     ## "aapl",    ## Apple inc.
     ## "iau",  ## gold
@@ -564,10 +564,10 @@ symbols <- c(
     ## "uso"  ## US oil fund
     ## "ung"   ## US natural gas fund
     ## "dba",
-    "jjg",
+    ## "jjg",
     ## "corn",
-    "weat",
-    "soyb"
+    ## "weat",
+    ## "soyb"
     ## "cane"
     ## "nib"
     ## "vxx"  ## SP500 short term volatility
@@ -595,16 +595,16 @@ if (!use.database) {
     ##                         ));
 
     ## uup, fxe, fxy
-    ## rs <- dbSendQuery(database,
-    ##                   paste(sprintf("select tm from %s_daily ", symbols[1]),
-    ##                         "where tm between '2011-09-19' and '2018-03-20';"
-    ##                         ));
-
-    ## jjg, weat, soyb
     rs <- dbSendQuery(database,
                       paste(sprintf("select tm from %s_daily ", symbols[1]),
-                            "where tm between '2011-09-19' and '2018-04-02';"
+                            "where tm between '2008-03-20' and '2012-08-24';"
                             ));
+
+    ## jjg, weat, soyb
+    ## rs <- dbSendQuery(database,
+    ##                   paste(sprintf("select tm from %s_daily ", symbols[1]),
+    ##                         "where tm between '2011-09-19' and '2018-04-02';"
+    ##                         ));
 
     days <- fetch(rs, n=-1)[[1]];
     dbClearResult(rs);
@@ -652,8 +652,8 @@ wealth <- rep(1, length(days));
 wealth.max <- rep(1, length(days));
 
 
-t0 <- 237;
-## t0 <- 61;
+## t0 <- 237;
+t0 <- 61;
 t1 <- t0;
 V[t0] <- 1;
 p <- length(symbols);
@@ -737,12 +737,13 @@ for (tm in t0:length(days)) {
             });
             cat("    part regenerate.\n");
         }
+        prices <- update.prices(tm);
     } else {
         timescales <- sapply(1:length(strats), FUN=function(i) {
             strats[[i]]$params$T1;
         });
     }
-    prices <- update.prices(tm);
+
     Q <- quantile(timescales, probs=c(0.05, 0.95));
     cat("    coverage: ", min(timescales), Q[1],
         mean(timescales), Q[2], max(timescales), "\n");
