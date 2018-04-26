@@ -47,43 +47,45 @@ propose.trade <- function(T1, exposure.max, Y, E)
     }
     d <- floor(log(dim(Y)[1]));
     for (i in 1:K) {
-        ## model <- fit.arma(Y[, i], order.max=c(d, d), include.mean=NA);
-        ## prediction <- predict(model, n.ahead=1);
-        ## if (length(model$coef) > 0) {
-        ##     ## T <- tryCatch(t.test(Y[, i]), error=function(e) list(p.value=1));
-        ##     mu <- prediction$pred[1];
-        ##     sig <- prediction$se[1];
-        ##     metrics[i, 1:2] <- c(mu, sig);
-        ##     metrics[i, 3:4] <- SR(mu, sig);
-        ## } else {
-        ##     ## No gain expected. We don't gamble.
-        ##     metrics[i, 1] <- 0;
-        ##     metrics[i, 2] <- prediction$se[1];
-        ##     metrics[i, 3:4] <- NA;
-        ## }
-
-        metrics[i, 1:2] <- tryCatch ({
-            model <- autoarfima(Y[, i], distribution.model="norm",
-                                method="partial",
-                                solver="nlminb",
-                                solver.control=list(
-                                    rel.tol=1.0e-2
-                                    ## iter.max=100
-                                ));
-            Chi <- coef(model$fit);
-            pred <- arfimaforecast(model$fit, n.ahead=1);
-            c(fitted(pred), Chi["sigma"]);
-        }, warning=function(w) {
-            rep(NA, 2);
-        }, error=function(err) {
-            rep(NA, 2);
-        });
-        if (is.na(metrics[i, 1])) {
-            metrics[i, 3] <- NA;
-            metrics[i, 4] <- NA;
+        model <- fit.arma(Y[, i], order.max=c(d, d), include.mean=NA);
+        prediction <- predict(model, n.ahead=1);
+        if (length(model$coef) > 0) {
+            ## T <- tryCatch(t.test(Y[, i]), error=function(e) list(p.value=1));
+            mu <- prediction$pred[1];
+            sig <- prediction$se[1];
+            metrics[i, 1:2] <- c(mu, sig);
+            metrics[i, 3:4] <- SR(mu, sig);
         } else {
-            metrics[i, 3:4] <- SR(metrics[i, 1], metrics[i, 2]);
+            ## No gain expected. We don't gamble.
+            metrics[i, 1] <- 0;
+            metrics[i, 2] <- prediction$se[1];
+            metrics[i, 3:4] <- NA;
         }
+
+        ## metrics[i, 1:2] <- tryCatch ({
+        ##     model <- autoarfima(Y[, i],
+        ##                         distribution.model="norm",
+        ##                         ar.max=d, ma.max=d,
+        ##                         method="partial",
+        ##                         solver="nlminb",
+        ##                         solver.control=list(
+        ##                             rel.tol=1.0e-4
+        ##                             ## iter.max=100
+        ##                         ));
+        ##     Chi <- coef(model$fit);
+        ##     pred <- arfimaforecast(model$fit, n.ahead=1);
+        ##     c(fitted(pred), Chi["sigma"]);
+        ## }, warning=function(w) {
+        ##     rep(NA, 2);
+        ## }, error=function(err) {
+        ##     rep(NA, 2);
+        ## });
+        ## if (is.na(metrics[i, 1])) {
+        ##     metrics[i, 3] <- NA;
+        ##     metrics[i, 4] <- NA;
+        ## } else {
+        ##     metrics[i, 3:4] <- SR(metrics[i, 1], metrics[i, 2]);
+        ## }
     }
     if (sum(!is.na(metrics[, 3])) == 0) {
         return(c(rep(0, p), 0));
@@ -250,8 +252,8 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
                         "factor.algo", "propose.trade", "loss.tol"));
     proposals <- foreach(
         l=timescales,
-        .combine='rbind',
-        .packages=c("rugarch")
+        .combine='rbind'
+        ## .packages=c("rugarch")
         ## export=c("prices", "strats", "exposure.max",
         ##          "factor.algo", "propose.trade", "loss.tol")
     ) %dopar% {
@@ -384,7 +386,7 @@ sample.strats <- function(n, weight.exp, ret)
     probs <- rep(NA, length(ret));
     if (length(unique(ret)) == 1) {
         probs <- rep(1, length(ret));
-        cat("    weight exponent: ", 0, "\n");
+        cat("    Equal weights.\n");
     } else {
         ## database = dbConnect(
         ##     MySQL(), user='sinbaski', password='q1w2e3r4',
@@ -420,14 +422,14 @@ sample.strats <- function(n, weight.exp, ret)
         ## } else {
         ##     probs <- ecdf(X)(ret);
         ## }
-        probs <- ecdf(ret)(ret);
 
         ## works with uup, fxe, fxy,
-        ## probs <- ecdf(ret)(ret);
+        probs <- ecdf(ret)(ret);
+        cat("    ecdf weights.\n");
 
         ## Works with jjg, weat, soyb
         ## r <- 1;
-        ## a <- mean(exp(ret));
+        ## a <- mean(exp(1 * ret));
         ## b <- mean(exp(100 * ret));
         ## if (a > 1) {
         ##     r <- 1;
@@ -652,8 +654,8 @@ wealth <- rep(1, length(days));
 wealth.max <- rep(1, length(days));
 
 
-## t0 <- 237;
-t0 <- 61;
+t0 <- 237;
+## t0 <- 410;
 t1 <- t0;
 V[t0] <- 1;
 p <- length(symbols);
