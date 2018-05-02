@@ -93,7 +93,7 @@ factor.algo <- function(T1, L, exposure.max)
             apply(prices[(k-L+1):k, ], MARGIN=2, FUN=mean);
         }));
     }
-    ## ret <- apply(S, MARGIN=2, FUN=function(x) tail(x, n=-1)/head(x, n=-1) - 1);
+   ## ret <- apply(S, MARGIN=2, FUN=function(x) tail(x, n=-1)/head(x, n=-1) - 1);
     ret <- tail(S, n=-1)/head(S, n=-1) - 1;
     C <- cov(ret);
     E <- eigen(C);
@@ -328,7 +328,9 @@ gen.strat <- function(interval=NA)
     ##     T1 <- round(runif(n=1, min=interval[1], max=interval[2]));
     ## }
     T1 <- abs(rdsct.exp(1, 0.8)) + 15;
-    L <- abs(rdsct.exp(1, 0.4)) + 1;
+    ## L <- sample(1:3, size=1, prob=c(0.5, 0.25, 0.25));
+    L <- 1;
+    ## L <- abs(rdsct.exp(1, 0.4)) + 1;
     ## X = sharpe.min
     ## P(X <= 1) = 0.99
     ## E(X) = 0.3
@@ -410,8 +412,10 @@ sample.strats <- function(n, weight.exp, ret)
         mutation <- rdsct.exp(1, mut.rate);
         T1 <- max(T1.min, strats[[mother]]$params$T1 + mutation);
 
-        mutation <- rdsct.exp(1, mut.rate);
-        L <- max(1, strats[[mother]]$params$L + mutation);
+        ## mutation <- rdsct.exp(1, mut.rate);
+        ## mutation <- sample(-1:1, size=1, prob=c(0.025, 0.95, 0.025));
+        ## L <- max(1, strats[[mother]]$params$L + mutation);
+        L <- strats[[mother]]$params$L;
 
         sm <- rgamma(n=1, shape=3.922878, rate=13.07631);
         strats.new[[i]]$params <- list(T1=T1, L=L, sharpe.min=sm);
@@ -672,22 +676,29 @@ for (tm in t0:length(days)) {
     ## cat("    mean: ", stats$mean, "\n");
     ## cat("    sd: ", stats$sd, "\n");
     ## cat("    leverage: ", lever, "\n");
-
-    ## weight.exp <- if (is.na(stats$sd)) 50 else stats$sd * 3.0e+4;
     if (tm > t0) {
-        weight.exp <- 50;
-        if (tm - t1 == 40) {
-            N <- round(length(strats) * 0.8);
-            strats[1:N] <- sample.strats(N, weight.exp, ret);
-            for (i in (N+1):length(strats)) {
-                strats[[i]] <- gen.strat();
-            }
-            t1 <- tm;
-        } else {
-            strats <- sample.strats(length(strats), weight.exp, ret);
+        N <- round(length(strats) * 0.99);
+        strats[1:N] <- sample.strats(N, weight.exp, ret);
+        for (i in (N+1):length(strats)) {
+            strats[[i]] <- gen.strat();
         }
         prices <- update.prices(tm);
     }
+    ## weight.exp <- if (is.na(stats$sd)) 50 else stats$sd * 3.0e+4;
+    ## if (tm > t0) {
+    ##     weight.exp <- 50;
+    ##     if (tm - t1 == 40) {
+    ##         N <- round(length(strats) * 0.8);
+    ##         strats[1:N] <- sample.strats(N, weight.exp, ret);
+    ##         for (i in (N+1):length(strats)) {
+    ##             strats[[i]] <- gen.strat();
+    ##         }
+    ##         t1 <- tm;
+    ##     } else {
+    ##         strats <- sample.strats(length(strats), weight.exp, ret);
+    ##     }
+    ##     prices <- update.prices(tm);
+    ## }
     ## if (tm - t1 == 50) {
     ##     for (i in 1:length(strats)) {
     ##         strats[[i]] <- gen.strat();
