@@ -1,0 +1,222 @@
+\title{Summary of Xie's Trading Algorithm}
+\author{
+  Xie Xiaolei \\
+  xie.xiaolei@gmail.com, +44 73 80 19 11 66
+}
+\date{\today}
+
+\documentclass[12pt]{article}
+\usepackage{multirow}
+\usepackage{graphicx}
+
+\DeclareGraphicsExtensions{.pdf,.png,.jpg}
+
+\input{../kkasi/physics_common.tex}
+% \usepackage{amsmath}
+% \usepackage{amsfonts}
+% \usepackage{mathrsfs}
+\usepackage[colorlinks,citecolor=blue,urlcolor=blue]{hyperref}
+% \usepackage[bookmarks=true]{hyperref}
+% \usepackage{bookmark}
+% \usepackage{dsfont}
+% \usepackage{enumerate}
+
+% \newcommand{\E}{
+%         \mathbb{E}
+% }
+% \newcommand{\p}{
+%         \mathbb{P}
+% }
+% \newcommandf166{\I}[1]{
+%         \mathbf 1_{#1}
+% }
+% \newcommand{\dom}{
+%         \text{dom}
+% }
+% \newcommand{\inn}[1]{
+%   \langle#1\rangle
+% }
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+The algorithm is profitable trading ETFs that provide exposure to a
+selection of foreign exchange rates and agricultural commodities. In
+the following sections we show the performance of the algorithm when
+trading these two classes of ETFs. A return in the following refers to
+the return given by close-to-close prices unless stated otherwise
+explicitly.
+
+The algorithm is built on principle component analysis, ARIMA
+modelling of time series and volatility proxies. Resampling techniques
+are also essential.
+
+The ETFs are chosen according to the tail indices of their returns'
+distributions. See \S\ref{sec:TailIndices} for more details.
+
+\section{Foreign Exchange Rates}
+The strategy is tested on the trading data of UUP (US dollar), FXE
+(Euro) and FXY (Japanese Yen) in the period 24th Auguest, 2012 to 19th
+March, 2018, covering 1399 trading days. The strategy {\bf uses and
+  only uses daily high, low and close prices}. Note that the Brexit
+referendum was held on 23rd June, 2016 and had caused significant
+disruptions to the FX market.
+
+Table \ref{tab:fx1} shows the performance of the strategy during this
+period.
+\begin{table}[htb!]
+  \centering
+  \begin{tabular}{ll||ll}
+    \multicolumn{2}{c||}{up to 19 March, 2018}
+    & \multicolumn{2}{c}{up to 23 June, 2016} \\
+    \hline
+    $S_D$ & 0.084 & $S_D$ & 0.130 \\
+    $S_M$ & 0.294 & $S_M$ & 0.463 \\
+    $D_{\text{max}}$ & 9.8\% & $D_{\text{max}}$ & 6.9\% \\
+    $\bar X$ & 78.45\% & $\bar X$ & 80.92\% \\
+  \end{tabular}
+  \caption{Performance of FX strategy. $S_D$: Sharpe ratio of daily
+    returns; $S_M$: Sharpe ratio of monthly returns. $D_\M$:
+    maximum drawdown for the test period. Monthly returns are computed
+    using monthly average worth of the portfolio. $\bar X$: average
+    exposure. The exposure of day $n$ is $X_n = (L_n + S_n)/W_n$,
+    where $L_n$ ($S_n$) is the absolute value of the total worth of
+    long (short) positions on market close of day $n$; $W_n$ is the
+    worth of the portfolio on day $n$. $\bar X$ is the average of
+    $\{X_n\}$ over the test period.
+  }
+  \label{tab:fx1}
+\end{table}
+The distribution of daily returns (denoted $X$) during this period is
+not normal but has heavy tails. Specifically,
+\begin{eqnarray*}
+  \P(X > x) &\sim& L_r(x) x^{-\alpha_r}, \quad x \to \infty \\
+  \P(X \leq -x) &\sim& L_l(x) x^{-\alpha_l}, \quad x \to \infty
+\end{eqnarray*}
+where $L_r$ and $L_l$ are slowly varying functions that satisfy
+\[
+  \lim_{x \to \infty} {L(a x) \over L(x)} = 1, \quad \forall a > 0.
+\]
+Here $\sim$ denotes tail equivalence, i.e. $f(x) \sim g(x)$ means, for
+two functions $f(x)$ and $g(x)$, $x > 0$,
+\[
+  \lim_{x \to \infty} {f(x) \over g(x)} = 1
+\]
+See Embrechts, Kl\"ueppelberg and Mikosch
+\cite{embrechts:klueppelberg:mikosch:1997} for more details on
+heavy-tailed distributions and {\it Extreme Value Theory}. The tail
+index $\alpha_r$ ($\alpha_l$) gives an insight into the likelihood
+of large positive (negative) returns. {\bf If $\alpha_r < \alpha_l$,
+  then for a sufficiently large positive $u$, $\P(X > u) > \P(X \leq -u)$},
+i.e. large profits are more likely than equally large losses,
+assuming the same slowly varying function is shared by both
+tails. Using the Hill estimator, the tail indices $\alpha_r$ and
+$\alpha_l$ are estimated for the testing period:
+\begin{eqnarray*}
+  \alpha_r &=& 3.61, \quad \text{for profits} \\
+  \alpha_l &=& 4.39, \quad \text{for losses}
+\end{eqnarray*}
+So we see that the algorithm succeeds in predicting large price swings
+considerably more often than it fails. From the perspective of
+predictive power, some more insight about the algorithm can be
+obtained by investigating the correlation between an asset's return
+on day $n$ and the algorithm's position on the same asset on day
+$n-1$.
+
+Let $X_{i, t}$ denote the return of asset $i, i=1,2,3$ on day $t,
+t=1,2, \dots$ (that is, $X_{i,t} = P_{i,t}/P_{i, t-1} - 1$ where
+$P_{i,t}$ is the price of asset $i$ on market close of day $t$) and $Q_{i, t}$
+denote the size of the algorithm's position on asset $i$ on day
+$t$. $-1 \leq Q_{i,t} \leq 1$. When $Q_{i,t} = -1$, the algorithm
+invests all available capital on a short position of asset $i$; when
+$Q_{i,t} = 1$, its invests all available capital on a long position of
+asset $i$. We compute the Pearson correlation coefficient $\rho$ and
+Kendall's $\tau$ of the following two series:
+\begin{eqnarray*}
+  x &=& (Q_{1, 1}, \dots, Q_{1, n-1}, Q_{2, 1}, \dots, Q_{2, n-1}, Q_{3,
+        1}, \dots, Q_{3, n-1}) \\
+  y &=& (X_{1, 2}, \dots, X_{1, n}, X_{2, 2}, \dots, X_{2, n}, X_{3,
+        2}, \dots, X_{3, n})
+\end{eqnarray*}
+where $n$ is the number of trading days in the testing period. In this
+calculation we exclude days on which the algorithm decides not to
+trade. For the 5.5-year testing period, $n=1123$. The resulting
+correlation coefficients are
+\begin{eqnarray*}
+  \text{Pearson's } \rho &=& 0.030 \\
+  \text{Kendall's } \tau &=& 0.018
+\end{eqnarray*}
+
+% Figure \ref{fig:fx1} shows the worth of a hypothetic FX portfolio that
+% starts on 24th August, 2012 and that is worth 1 unit of currency at
+% that time.
+% \begin{figure}[htb!]
+%   \centering
+%   \includegraphics[width=1.0\linewidth]{FX.pdf}
+%   \caption{FX portfolio worth}
+%   \label{fig:fx1}
+% \end{figure}
+% Table \ref{tab:fx2} shows the average worth of the portfolio in each
+% quarter during the test period.
+% \begin{table}[htb!]
+%   \centering
+%   \begin{tabular}{ccc||ccc}
+%     year & quarter & worth & year & quarter & worth \\
+%     \hline
+%     2012 & 3 & 1.006 & 2015 & 3 & 1.352 \\
+%     2012 & 4 & 1.004 & 2015 & 4 & 1.352 \\
+%     2013 & 1 & 1.037 & 2016 & 1 & 1.347 \\
+%     2013 & 2 & 1.069 & 2016 & 2 & 1.324 \\
+%     2013 & 3 & 1.073 & 2016 & 3 & 1.298 \\
+%     2013 & 4 & 1.109 & 2016 & 4 & 1.282 \\
+%     2014 & 1 & 1.105 & 2017 & 1 & 1.293 \\
+%     2014 & 2 & 1.090 & 2017 & 2 & 1.309 \\
+%     2014 & 3 & 1.120 & 2017 & 3 & 1.308 \\
+%     2014 & 4 & 1.231 & 2017 & 4 & 1.285 \\
+%     2015 & 1 & 1.320 & 2018 & 1 & 1.286 \\
+%     2015 & 2 & 1.364 & & &
+%   \end{tabular}
+%   \caption{Quarterly average worth of the FX portfolio that starts on
+%     24th Auguest, 2012 with worth 1.
+%   }
+%   \label{tab:fx2}
+% \end{table}
+\section{Agricultural Commodities}
+The same strategy also proves profitable when tested on agricultural
+commodities, namely JJG (ETN based on grains futures), WEAT (commodity pool
+based on wheat futures) and SOYB (commodity pool based on soybean
+futures). Table \ref{tab:agricomm1} gives a summary of the performance
+of the algorithm during the period 24th Augest, 2012 to 2nd April,
+2018.
+\begin{table}[htb!]
+  \centering
+  \begin{tabular}{ll||ll}
+    \multicolumn{2}{c||}{up to 19 March, 2018}
+    & \multicolumn{2}{c}{up to 23 June, 2016} \\
+    \hline
+    $S_D$ & 0.069 & $S_D$ & 0.091 \\
+    $S_M$ & 0.273 & $S_M$ & 0.368 \\
+    $D_{\text{max}}$ & 7.0\% & $D_{\text{max}}$ & 7.0\% \\
+    $\bar X$ & 53.49\% & $\bar X$ & 50.32\% \\
+  \end{tabular}
+  \caption{Performance of FX strategy. $S_D$: Sharpe ratio of daily
+    returns; $S_M$: Sharpe ratio of monthly returns. $D_\M$:
+    maximum drawdown for the test period. Monthly returns are computed
+    using monthly average worth of the portfolio. $\bar X$: average
+    exposure. The exposure of day $n$ is $X_n = (L_n + S_n)/W_n$,
+    where $L_n$ ($S_n$) is the absolute value of the total worth of
+    long (short) positions on market close of day $n$; $W_n$ is the
+    worth of the portfolio on day $n$. $\bar X$ is the average of
+    $\{X_n\}$ over the test period.
+  }
+  \label{tab:agricomm1}
+\end{table}
+
+
+
+\section{Tail Indices}\label{sec:TailIndices}
+
+\bibliographystyle{unsrt}
+\bibliography{../kkasi/thesis/econophysics}
+\end{document}
