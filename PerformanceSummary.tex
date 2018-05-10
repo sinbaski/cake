@@ -1,4 +1,4 @@
-\title{Summary of Xie's Trading Algorithm}
+\title{Performance of Xie's Trading Algorithm}
 \author{
   Xie Xiaolei \\
   xie.xiaolei@gmail.com, +44 73 80 19 11 66
@@ -52,8 +52,9 @@ The algorithm is built on principle component analysis, ARIMA
 modelling of time series and volatility proxies. Resampling techniques
 are also essential.
 
-The ETFs are chosen according to the tail indices of their returns'
-distributions. See \S\ref{sec:TailIndices} for more details.
+The ETFs are chosen according to the tail indices of their daily
+returns' distributions as well as to their cross correlations. See
+\S\ref{sec:TailIndices} for more details.
 
 \section{Foreign Exchange Rates}
 The strategy is tested on the trading data of UUP (US dollar), FXE
@@ -71,20 +72,33 @@ period.
     \multicolumn{2}{c||}{up to 19 March, 2018}
     & \multicolumn{2}{c}{up to 23 June, 2016} \\
     \hline
+    $R_D$ & $2.63 \times 10^{-4}$ & $R_D$ & $4.26 \times 10^{-4}$  \\
     $S_D$ & 0.084 & $S_D$ & 0.130 \\
+    $R_M$ & $3.70 \times 10^{-3}$ & $R_M$ & $6.39 \times 10^{-3}$  \\
     $S_M$ & 0.294 & $S_M$ & 0.463 \\
     $D_{\text{max}}$ & 9.8\% & $D_{\text{max}}$ & 6.9\% \\
     $\bar X$ & 78.45\% & $\bar X$ & 80.92\% \\
+    $\bar Y$ & 88.69\% & $\bar Y$ & 89.04\% \\
+    profit & 26.0\% & profit & 28.3\%
   \end{tabular}
-  \caption{Performance of FX strategy. $S_D$: Sharpe ratio of daily
-    returns; $S_M$: Sharpe ratio of monthly returns. $D_\M$:
-    maximum drawdown for the test period. Monthly returns are computed
-    using monthly average worth of the portfolio. $\bar X$: average
-    exposure. The exposure of day $n$ is $X_n = (L_n + S_n)/W_n$,
-    where $L_n$ ($S_n$) is the absolute value of the total worth of
-    long (short) positions on market close of day $n$; $W_n$ is the
-    worth of the portfolio on day $n$. $\bar X$ is the average of
-    $\{X_n\}$ over the test period.
+  \caption{
+    Performance of the algorithm on FX rates.
+    $R_D$: expected value of daily returns;
+    $S_D$: Sharpe ratio of daily returns;
+    $R_D$: expected value of monthly returns;
+    $S_M$: Sharpe ratio of monthly returns.
+    $D_\M$: maximum drawdown for the test period. Monthly
+    returns are computed using monthly average worth of the
+    portfolio.
+    $\bar X$: average exposure. The exposure of day $n$ is
+    $X_n = (L_n + S_n)/W_n$, where $L_n$ ($S_n$) is the absolute value
+    of the total worth of long (short) positions on market close of
+    day $n$; $W_n$ is the worth of the portfolio on day $n$. $\bar X$
+    is the average of $\{X_n\}$ over the test period.
+    $\bar Y$: average turnover ratio. Turnover ratio of day $n$ is
+    computed as $\frac{1}{W_{n-1}}\sum_{i=1}^3 \left| x_{i, n} - x_{i,
+        n-1} \right|$, where $x_{i, n}$ is the monetary amount of
+    allocation to asset $i$ on day $n$.
   }
   \label{tab:fx1}
 \end{table}
@@ -117,12 +131,17 @@ $\alpha_l$ are estimated for the testing period:
   \alpha_r &=& 3.61, \quad \text{for profits} \\
   \alpha_l &=& 4.39, \quad \text{for losses}
 \end{eqnarray*}
-So we see that the algorithm succeeds in predicting large price swings
-considerably more often than it fails. From the perspective of
-predictive power, some more insight about the algorithm can be
-obtained by investigating the correlation between an asset's return
-on day $n$ and the algorithm's position on the same asset on day
-$n-1$.
+Meanwhile, the sample mean of the daily returns during the entire
+period is estimated at $1.77 \times 10^{-4}$ and a t-test of $\E X =
+0$ against $\E X \neq 0$ gives a p-value of $9.78 \times 10^{-3}$.
+So we see that the algorithm succeeds in predicting price movements,
+especially in predicting large price movements, considerably more
+often than it fails.
+
+From the perspective of predictive power, some more insight about the
+algorithm can be obtained by investigating the correlation between an
+asset's return on day $n$ and the algorithm's position on the same
+asset on day $n-1$.
 
 Let $X_{i, t}$ denote the return of asset $i, i=1,2,3$ on day $t,
 t=1,2, \dots$ (that is, $X_{i,t} = P_{i,t}/P_{i, t-1} - 1$ where
@@ -192,30 +211,154 @@ of the algorithm during the period 24th Augest, 2012 to 2nd April,
 \begin{table}[htb!]
   \centering
   \begin{tabular}{ll||ll}
-    \multicolumn{2}{c||}{up to 19 March, 2018}
+    \multicolumn{2}{c||}{up to 2 April, 2018}
     & \multicolumn{2}{c}{up to 23 June, 2016} \\
     \hline
+    $R_D$ & $1.77 \times 10^{-4}$ & $R_D$ & $2.42 \times 10^{-4}$  \\
     $S_D$ & 0.069 & $S_D$ & 0.091 \\
+    $R_M$ & $3.00 \times 10^{-3}$ & $R_M$ & $4.49 \times 10^{-3}$  \\
     $S_M$ & 0.273 & $S_M$ & 0.368 \\
     $D_{\text{max}}$ & 7.0\% & $D_{\text{max}}$ & 7.0\% \\
     $\bar X$ & 53.49\% & $\bar X$ & 50.32\% \\
+    $\bar Y$ & 62.47\% & $\bar Y$ & 58.07\% \\
+    profit & 21.94\% & profit & 20.65\% 
   \end{tabular}
-  \caption{Performance of FX strategy. $S_D$: Sharpe ratio of daily
-    returns; $S_M$: Sharpe ratio of monthly returns. $D_\M$:
-    maximum drawdown for the test period. Monthly returns are computed
-    using monthly average worth of the portfolio. $\bar X$: average
-    exposure. The exposure of day $n$ is $X_n = (L_n + S_n)/W_n$,
-    where $L_n$ ($S_n$) is the absolute value of the total worth of
-    long (short) positions on market close of day $n$; $W_n$ is the
-    worth of the portfolio on day $n$. $\bar X$ is the average of
-    $\{X_n\}$ over the test period.
+  \caption{
+    Performance of the algorithm on agricultural commodities.
+    $R_D$: expected value of daily returns;
+    $S_D$: Sharpe ratio of daily returns;
+    $R_D$: expected value of monthly returns;
+    $S_M$: Sharpe ratio of monthly returns.
+    $D_\M$: maximum drawdown for the test period. Monthly
+    returns are computed using monthly average worth of the
+    portfolio.
+    $\bar X$: average exposure. The exposure of day $n$ is
+    $X_n = (L_n + S_n)/W_n$, where $L_n$ ($S_n$) is the absolute value
+    of the total worth of long (short) positions on market close of
+    day $n$; $W_n$ is the worth of the portfolio on day $n$. $\bar X$
+    is the average of $\{X_n\}$ over the test period.
+    $\bar Y$: average turnover ratio. Turnover ratio of day $n$ is
+    computed as $\frac{1}{W_{n-1}}\sum_{i=1}^3 \left| x_{i, n} - x_{i,
+        n-1} \right|$, where $x_{i, n}$ is the monetary amount of
+    allocation to asset $i$ on day $n$.
   }
   \label{tab:agricomm1}
 \end{table}
 
+In the same way as we have done for the FX ETFs, we also estimate the
+tail indices of the distribution of the daily returns generated by the
+algorithm on the aforementioned products. The results are as follows:
+\begin{eqnarray*}
+  \alpha_r &=& 3.58 \\
+  \alpha_l &=& 3.73
+\end{eqnarray*}
+As a reminder of the meaning of these two quantities, $\P(X > x) \sim
+L(x) x^{-\alpha_r}$ and $\P(X \leq x) \sim L(x) x^{-\alpha_l}$, where
+$X$ has the same distribution as the daily returns generated by the
+algorithm on those days when trading occurs.
 
+Using the same method as described for FX ETFs, the correlation
+between next-day returns and present-day positions is also estimated:
+\begin{eqnarray*}
+  \text{Pearson's } \rho &=& 0.013 \\
+  \text{Kendall's } \tau &=& 0.005
+\end{eqnarray*}
 
-\section{Tail Indices}\label{sec:TailIndices}
+\section{Tail Indices \& Correlations}\label{sec:TailIndices}
+The algorithm is built on ARIMA models and hence one can expect it to
+perform better with symbols whose returns series have lighter
+tails. It is a stylized fact that financial return series have heavy
+tails, i.e. for $x > 0$, $\P(X > x)\sim L(x) x^{-\alpha_r}$ and
+$\P(X \leq -x)\sim L(x) x^{-\alpha_l}$, where we assume each element
+of the return series, call it $\{X_t\}_{t=0,1,2,\dots}$, are
+independent and identically distributed (iid). The tail indices give a
+measure of how heavy the tails are: the smaller the tail index, the
+heavier the tail. I expect the algorithm to perform better on symbols
+with larger tail indices and hence have estimated the tail indices of
+poptentially suitable ETFs. The result is listed in table
+\ref{tab:TailIndices}.
+\begin{table}[htb!]
+  \centering
+  \begin{tabular}{r|c|c||r|c|c||r|c|c}
+    symbol & $\alpha_l$ & $\alpha_r$
+    & symbol & $\alpha_l$ & $\alpha_r$
+    & symbol & $\alpha_l$ & $\alpha_r$ \\
+    \hline
+    UUP & 3.49 & 3.64 
+    & JJG & 3.05 & 4.20 
+    & SPY & 2.48 & 2.41 \\
+    FXE & 3.95 & 3.30 
+    & WEAT & 4.80 & 3.01
+    & EWG & 2.72 & 2.73 \\
+    FXY & 3.18 & 3.09 
+    & SOYB & 2.82 & 3.77 
+    & EWJ & 2.50 & 2.28
+  \end{tabular}
+  \caption{Tail indices}
+  \label{tab:TailIndices}
+\end{table}
+So we see that the FX rates and the agricultural commodities have lighter
+tails than do country ETFs such as SPY (tracking {\it US} stocks), EWG
+(tracking {\it German} stocks) and EWJ (tracking {\it Japanese}
+stocks).
+
+Another criterion for selecting symbols to the algorithm is strong
+cross correlations. The Pearson correlation coefficients of the
+FX rates and of the agricultural commodities in the testing period are
+tabulated below in table \ref{tab:cor1}.
+\begin{table}[htb!]
+  \begin{minipage}[t]{0.5\linewidth}
+    \centering
+    \begin{tabular}{c|c|c|c}
+      & UUP & FXE & FXY \\
+      \hline
+      UUP & 1.0 & -0.955 & -0.346 \\
+      FXE & -0.955 & 1.0 & 0.216 \\
+      FXY & -0.346 & 0.216 & 1.0
+    \end{tabular}
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.5\linewidth}
+    % \begin{table}[htb!]
+    \centering
+    \begin{tabular}{c|c|c|c}
+      & JJG & WEAT & SOYB \\
+      \hline
+      JJG & 1.0 & 0.752 & 0.697 \\
+      WEAT & 0.752 & 1.0 & 0.391 \\
+      SOYB & 0.697 & 0.391 & 1.0
+    \end{tabular}
+  \end{minipage}
+  \caption{Correlation coefficients of FX and agricultural commodities}
+  \label{tab:cor1}
+\end{table}
+In comparison, the coefficients of the country ETFs are tabulated in
+table \ref{tab:cor2}.
+\begin{table}[htb!]
+  \centering
+  \begin{tabular}{c|c|c|c}
+    & SPY & EWG & EWJ \\
+    \hline
+    SPY & 1.0 & 0.857 & 0.796 \\
+    EWG & 0.857 & 1.0 & 0.750 \\
+    EWJ & 0.796 & 0.750 & 1.0
+  \end{tabular}
+  \caption{Correlation coefficients of country ETFs}
+  \label{tab:cor2}
+\end{table}
+While the country ETFs are seen to have stronger correlations than do
+the corresponding currencies, their tails are significantly heavier
+than are those of the currencies. I give precedence to lighter tails,
+because by the {\it Marcinkiewicz-Zygmund strong law of large
+  numbers}, estimating the true correlation coefficient using its
+sample counterpart is less accurate when the series in question have
+heavier tails.
+
+Obviously, tail indices and correlation coefficients are themselves
+varying in time, but such variations are much slower than the
+variations of the returns series that these quantities describe. For
+the purpose of choosing assets to trade with the algorithm, estimation
+of these quantities using a long series of historical data should be
+sufficiently accurate.
 
 \bibliographystyle{unsrt}
 \bibliography{../kkasi/thesis/econophysics}
