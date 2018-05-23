@@ -61,7 +61,7 @@ public:
 
 	double chi2;
 	gsl_multifit_linear_workspace *work =
-	    gsl_multifit_linear_alloc(X->size1, 2);
+	    gsl_multifit_linear_alloc(X->size1, X->size2);
 	gsl_multifit_linear(X, Y, beta, beta_cov, &chi2, work);
 	gsl_multifit_linear_free(work);
     };
@@ -74,12 +74,10 @@ public:
 	for (size_t i = 0; i < n; i++) {
 	    MYSQL_ROW row = mysql_fetch_row(res);
 	    gsl_vector_set(Y, i, atof(row[y_idx]));
-	    for (auto k = x_idx.cbegin(); k != x_idx.cend(); k++) {
-		gsl_matrix_set(X, i, *k, atof(row[*k]));
+	    for (size_t k = 0; k < x_idx.size(); k++) {
+		gsl_matrix_set(X, i, k, atof(row[x_idx[k]]));
 	    }
 	}
-	mysql_free_result(res);
-
 	fit(Y, X);
 	gsl_matrix_free(X);
 	gsl_vector_free(Y);
@@ -190,7 +188,7 @@ int main(int argc, char *argv[])
 	"home varchar(8), "
 	"away varchar(8), "
 	"intensity decimal(8, 4), "
-	"order tinyint, "
+	"rank tinyint, "
 	"primary key (home, away))"
 	);
     for (auto i = teams.cbegin(); i != teams.cend(); i=next(i)) {
@@ -200,98 +198,130 @@ int main(int argc, char *argv[])
 	mysql_query(conn, str.c_str());
     }
 
-    // estimate lambda[home][away] for those pairs that haven't
-    // played against each other directly but have played against
-    // the same opponents.
     mysql_query(
 	conn,
-	"select A.home, A.away, A.intensity, "
-	"avg(B.intensity), avg(C.intensity) "
+	"drop view if exists K_view;"
+	);
+    mysql_query(
+	conn,
+	"create view K_view as "
+	"select A.home, A.away, avg(B.intensity) as x, avg(C.intensity) as y "
 	"from home_corners_intensity as A "
 	"join home_corners_intensity as B "
 	"join home_corners_intensity as C "
-	"on A.home = B.home and "
-	"B.away = C.home and "
-	"C.away = A.away "
-	"group by A.home, A.away"
+	"on A.home = B.home and B.away = C.home and C.away = A.away "
+	"group by A.home, A.away "
 	);
-    res = mysql_store_result(conn);
-    LinearModel model(res, 2, vector<int>{3,4});
-    mysql_free_result(res);
-    do {
-	mysql_query(
-	    conn,
-	    "select A.home, A.away, count(*), "
-	    "avg(B.intensity), avg(C.intensity) "
-	    "from matches_test as A "
-	    "join home_corners_intensity as B "
-	    "join home_corners_intensity as C "
-	    "on A.home = B.home "
-	    "and B.away = C.home "
-	    "and C.away = A.away "
-	    "where (A.home, A.away) not in ("
-	    "   select home, away from home_corners_intensity"
-	    ") "
-	    "group by A.home, A.away "
-	    "order by count(*) desc "
-	    "limit 1"
-	    );
-	res = mysql_store_result(conn);
-	if (mysql_num_rows(res) == 0) break;
-
-	MYSQL_ROW row = mysql_fetch_row(res);
-	if (stoi(row[2]) == 0) break;
-	double x = model.predict(vector<double>{atof(row[3]), atof(row[4])});
-	string stmt = string("insert into home_corners_intensity values (") +
-	    "'" + row[0] + "', '" + row[1] + "', " + to_string(x) + ", 1)";
-	mysql_free_result(res);
-	mysql_query(conn, stmt.c_str());
-    } while(true);
-    mysql_free_result(res);
-
-    // estimate lambda[home][away] for those pairs that haven't
-    // played against each other or against the same opponents.
     mysql_query(
 	conn,
-	"select A.home, A.away, A.intensity, B.itn, C.itn "
+	"select A.home, A.away, A.intensity - D.x, B.x, B.y, C.x - D.x, 1 "
 	"from home_corners_intensity as A "
+	"join K_view as B "
 	"join ( "
-	"     select home, avg(intensity) as itn "
+	"     select home, avg(intensity) as x "
 	"     from home_corners_intensity "
 	"     group by home "
-	") as B "
+	") as C "
 	"join ( "
-	"     select away, avg(intensity) as itn "
+	"     select away, avg(intensity) as x "
 	"     from home_corners_intensity "
 	"     group by away "
-	") as C "
-	"on A.home = B.home and A.away = C.away "
+	") as D "
+	"on A.home = B.home and A.away = B.away "
+	"and A.home = C.home and A.away = D.away "
 	);
     res = mysql_store_result(conn);
-    model.fit(res, 2, vector<int>{3,4});
+    LinearModel model(res, 2, vector<int>{3,4,5,6});
     mysql_free_result(res);
-
-    do {
-	mysql_query(
-	    conn,
-	    "select A.home, A.away, B.itn, C.itn "
-	    "from ( "
-	    "     select home, away from matches_test "
-	    "     where (home, away) not in ("
-	    "          select home, away from home_corners_intensity "
-	    ")) as A "
-	    "join ( "
-	    "     select home, avg(intensity) as itn "
-	    "     from home_corners_intensity "
-	    "     group by home "
-	    ") as B "
-	    "join ( "
-	    "     select away, avg(intensity) as itn "
-	    "     from home_corners_intensity "
-	    "     group by away "
-	    ") as C "
-	    "on A.home = B.home and A.away = C.away "
+    
+    mysql_query(
+	conn,
+	"select home, away from matches_test "
+	"where (home, away) not in ( "
+	"      select home, away from home_corners_intensity "
+	") "
+	);
+    res = mysql_store_result(conn);
+    size_t n = mysql_num_rows(res);
+    for (size_t i = 0; i < n; i++) {
+	vector<double> X(4);
+	double y, z;
+	MYSQL_ROW row = mysql_fetch_row(res);
+	char buf[512];
+	sprintf(
+	    buf,
+	    "select avg(B.intensity), avg(C.intensity), count(*) "
+	    "from home_corners_intensity as B "
+	    "join home_corners_intensity as C "
+	    "on B.away = C.home "
+	    "where B.home = '%s' and C.away = '%s'",
+	    row[0], row[1]
 	    );
-    } while(true);
+	mysql_query(conn, buf);
+	MYSQL_RES *res2 = mysql_store_result(conn);
+	if (mysql_num_rows(res2) == 0) {
+	    X[0] = X[1] = 0;
+	} else {
+	    MYSQL_ROW r = mysql_fetch_row(res2);
+	    if (atoi(r[2]) == 0) {
+		X[0] = X[1] = 0;
+	    } else {
+		X[0] = atof(r[0]);
+		X[1] = atof(r[1]);
+	    }
+	}
+	mysql_free_result(res2);
+
+	sprintf(buf, "select avg(intensity), count(*) "
+		"from home_corners_intensity "
+		"where home = '%s'", row[0]);
+	mysql_query(conn, buf);
+	res2 = mysql_store_result(conn);
+	if (mysql_num_rows(res2) == 0) {
+	    y = 0;
+	} else {
+	    MYSQL_ROW r = mysql_fetch_row(res2);
+	    if (atoi(r[1]) == 0) {
+		y = 0;
+	    } else {
+		y = atof(r[0]);
+	    }
+	}
+	mysql_free_result(res2);
+	
+	if (y > 0) {
+	    sprintf(
+		buf,
+		"select avg(intensity), count(*) "
+		"from home_corners_intensity "
+		"where away = '%s'", row[1]);
+	    mysql_query(conn, buf);
+	    res2 = mysql_store_result(conn);
+	    if (mysql_num_rows(res2) == 0) {
+		z = y = 0;
+	    } else {
+		MYSQL_ROW r = mysql_fetch_row(res2);
+		if (atoi(r[1]) == 0) {
+		    z = y = 0;
+		} else {
+		    z = atof(r[0]);
+		}
+	    }
+	    mysql_free_result(res2);
+	} else {
+	    z = 0;
+	}
+	X[2] = y - z;
+	X[3] = 1;
+
+	double intensity = model.predict(X) + z;
+	sprintf(
+	    buf,
+	    "insert into home_corners_intensity values ("
+	    "'%s', '%s', %.6f, 1)",
+	    row[0], row[1], intensity
+	    );
+	mysql_query(conn, buf);
+    }
     mysql_close(conn);
 }
