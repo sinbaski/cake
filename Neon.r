@@ -4,6 +4,7 @@ graphics.off();
 require(RMySQL);
 require(abind);
 require(rugarch)
+require(forecast);
 source("~/cake/libeix.r");
 
 set.seed(0);
@@ -27,56 +28,56 @@ propose.trade <- function(T1, exposure.max, Y, E)
 {
     p <- dim(Y)[2];
     K <- 1;
-    while(K <= p && E$values[K] > 1.0e-6) K <- K + 1;
+    ## while(K <= p && E$values[K] > 1.0e-6) K <- K + 1;
+    while(K <= p && E$values[K] > 0) K <- K + 1;
     K <- K - 1;
-    metrics <- matrix(NA, nrow=K, ncol=4);
-    SR <- function(mu, sig) {
+    metrics <- matrix(NA, nrow=K, ncol=2);
+    ES <- function(mu, sig) {
         I <- integrate(
             f=function(x) x * dnorm(x, mean=mu, sd=sig),
             lower=if (mu > 0) -Inf else 0,
             upper=if (mu > 0) 0 else Inf,
             rel.tol=1.0e-2
         );
-        ## score <- mu + params$gda * I$value;
-        score <- mu/sig;
         if (mu > 0) {
             es <- abs(I$value)/pnorm(0, mean=mu, sd=sig);
         } else {
             es <- abs(I$value)/(1 - pnorm(0, mean=mu, sd=sig));
         }
-        return(c(score, es));
+        return(es);
     }
     d <- floor(log(dim(Y)[1]));
     for (i in 1:K) {
-        model <- fit.arma(Y[, i], order.max=c(d, d), include.mean=NA);
+        ## model <- fit.arma(Y[, i], order.max=c(d, d), include.mean=NA);
+        model <- auto.arima(Y[, i]);
         prediction <- predict(model, n.ahead=1);
-        if (length(model$coef) > 0) {
-            ## T <- tryCatch(t.test(Y[, i]), error=function(e) list(p.value=1));
-            mu <- prediction$pred[1];
-            sig <- prediction$se[1];
-            metrics[i, 1:2] <- c(mu, sig);
-            metrics[i, 3:4] <- SR(mu, sig);
-        } else {
-            ## No gain expected. We don't gamble.
-            metrics[i, 1] <- 0;
-            metrics[i, 2] <- prediction$se[1];
-            metrics[i, 3:4] <- NA;
-        }
+        metrics[i, ] <- c(prediction$pred[1], prediction$se[1]^2);
     }
-    if (sum(!is.na(metrics[, 3])) == 0) {
+    if (sum(metrics[, 1]) == 0) {
         return(c(rep(0, p), 0));
     }
-    J <- which(!is.na(metrics[, 3]));
-    i <- J[which.max(abs(metrics[J, 3]))];
-    exposure <- min(
-        loss.tol/metrics[i, 4],
-        exposure.max/sum(abs(E$vectors[, i]))
-    );
-    shares <- sign(metrics[i, 1]) * exposure * E$vectors[, i]/tail(prices, n=1);
-    ## Long-only
-    ## shares[shares < 0] <- 0;
-    ## return(list(comb=shares, sharpe=metrics[i, 3]));
-    return(c(shares, metrics[i, 3]));
+    B <- diag(1/E$values[1:K]) %*% metrics[, 1];
+    B <- B / sum(abs(B));
+
+    mu <- t(B) %*% metrics[, 1];
+
+    M <- E$vector[, 1:K];
+    alloc <- M %*% B;
+    alloc <- alloc/sum(abs(alloc));
+
+    sig <- sqrt(t(B^2) %*% E$values);
+    es <- ES(mu, sig);
+    exposure <- min(loss.tol/es, exposure.max);
+    shares <- exposure * as.vector(alloc)/tail(prices, n=1);
+    return(c(shares, mu/sig));
+    ## J <- which(!is.na(metrics[, 3]));
+    ## i <- J[which.max(abs(metrics[J, 3]))];
+    ## exposure <- min(
+    ##     loss.tol/metrics[i, 4],
+    ##     exposure.max/sum(abs(E$vectors[, i]))
+    ## );
+    ## shares <- sign(metrics[i, 1]) * exposure * E$vectors[, i]/tail(prices, n=1);
+    ## return(c(shares, metrics[i, 3]));
 }
 
 factor.algo <- function(T1, L, exposure.max)
@@ -232,18 +233,24 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
             pa <- strats[[i]]$params;
             c(pa$T1, pa$L);
         }), MARGIN=2));
-    clusterExport(cl, c("prices", "strats", "exposure.max", "fit.arma",
+    clusterExport(cl, c("prices", "strats", "exposure.max", "auto.arima",
                         "factor.algo", "propose.trade", "loss.tol"));
-    proposals <- foreach(
-        i=1:dim(timescales)[1],
-        .combine='rbind'
-        ## .packages=c("rugarch")
-        ## export=c("prices", "strats", "exposure.max",
-        ##          "factor.algo", "propose.trade", "loss.tol")
-    ) %dopar% {
+    clusterExport(cl, c("timescales"), envir=environment());
+    ## proposals <- foreach(
+    ##     i=1:dim(timescales)[1],
+    ##     .combine='rbind',
+    ##     .packages=c("forecast"),
+    ##     export=c("prices", "strats", "exposure.max",
+    ##              "factor.algo", "propose.trade", "loss.tol")
+    ## ) %dopar% {
+    ##         factor.algo(timescales[i, 1], timescales[i, 2], exposure.max);
+    ## };
+    proposals <- t(parSapply(
+        cl, 1:dim(timescales)[1], FUN=function(i) {
             factor.algo(timescales[i, 1], timescales[i, 2], exposure.max);
-    };
-    holding <- foreach(i=1:population.size, .combine='rbind') %dopar% {
+        }));
+    clusterExport(cl, c("W", "p", "proposals"), envir=environment());
+    holding <- t(parSapply(cl, 1:population.size, FUN=function(i) {
         k <- which(timescales[, 1] == strats[[i]]$params$T1 &
                    timescales[, 2] == strats[[i]]$params$L);
         if (abs(tail(proposals[k, ], n=1)) > strats[[i]]$params$sharpe.min) {
@@ -255,7 +262,7 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
         } else {
             c(rep(0, p), W[i]);
         }
-    };
+    }));
     loading <- matrix(NA, nrow=length(strats), ncol=p);
     for (i in 1:dim(loading)[1]) {
         loading[i, ] <- holding[i, 1:p] * prices[n, ];
@@ -334,7 +341,8 @@ gen.strat <- function(interval=NA)
     ## X = sharpe.min
     ## P(X <= 1) = 0.99
     ## E(X) = 0.3
-    sharpe.min <- rgamma(n=1, shape=3.922878, rate=13.07631);
+    ## sharpe.min <- rgamma(n=1, shape=3.922878, rate=13.07631);
+    sharpe.min <- 0.2 + rexp(n=1, rate=10);
     holding <-c(rep(0, length(symbols)), 1);
     params <- list(T1=T1, L=L, sharpe.min=sharpe.min);
     return(list(params=params, holding=holding));
@@ -417,7 +425,8 @@ sample.strats <- function(n, weight.exp, ret)
         ## L <- max(1, strats[[mother]]$params$L + mutation);
         L <- strats[[mother]]$params$L;
 
-        sm <- rgamma(n=1, shape=3.922878, rate=13.07631);
+        ## sm <- rgamma(n=1, shape=3.922878, rate=13.07631);
+        sm <- 0.2 + rexp(n=1, rate=10);
         strats.new[[i]]$params <- list(T1=T1, L=L, sharpe.min=sm);
         strats.new[[i]]$holding <- c(rep(0, p), 1);
     };
