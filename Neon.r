@@ -50,13 +50,14 @@ propose.trade <- function(T1, exposure.max, Y, E)
     for (i in 1:K) {
         ## model <- fit.arma(Y[, i], order.max=c(d, d), include.mean=NA);
         model <- auto.arima(Y[, i]);
-        prediction <- predict(model, n.ahead=1);
-        metrics[i, ] <- c(prediction$pred[1], prediction$se[1]^2);
+        prediction <- forecast(model, h=1);
+        metrics[i, ] <- c(prediction$mean[1], model$sigma2);
+        ## metrics[i, ] <- c(mean(Y[, i]), E$values[i])
     }
-    if (sum(metrics[, 1]) == 0) {
+    if (sum(abs(metrics[, 1])) == 0) {
         return(c(rep(0, p), 0));
     }
-    B <- diag(1/E$values[1:K]) %*% metrics[, 1];
+    B <- diag(1/metrics[, 2]) %*% metrics[, 1];
     B <- B / sum(abs(B));
 
     mu <- t(B) %*% metrics[, 1];
@@ -65,7 +66,7 @@ propose.trade <- function(T1, exposure.max, Y, E)
     alloc <- M %*% B;
     alloc <- alloc/sum(abs(alloc));
 
-    sig <- sqrt(t(B^2) %*% E$values);
+    sig <- sqrt(t(B^2) %*% metrics[, 2]);
     es <- ES(mu, sig);
     exposure <- min(loss.tol/es, exposure.max);
     shares <- exposure * as.vector(alloc)/tail(prices, n=1);
@@ -234,7 +235,8 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
             c(pa$T1, pa$L);
         }), MARGIN=2));
     clusterExport(cl, c("prices", "strats", "exposure.max", "auto.arima",
-                        "factor.algo", "propose.trade", "loss.tol"));
+                        "factor.algo", "propose.trade", "loss.tol",
+                        "forecast"));
     clusterExport(cl, c("timescales"), envir=environment());
     ## proposals <- foreach(
     ##     i=1:dim(timescales)[1],
@@ -249,6 +251,12 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
         cl, 1:dim(timescales)[1], FUN=function(i) {
             factor.algo(timescales[i, 1], timescales[i, 2], exposure.max);
         }));
+    ## proposals <- matrix(NA, nrow=dim(timescales)[1], ncol=p+1);
+    ## for (i in 1:dim(timescales)[1]) {
+    ##     proposals[i, ] <- factor.algo(
+    ##         timescales[i, 1], timescales[i, 2], exposure.max
+    ##     );
+    ## }
     clusterExport(cl, c("W", "p", "proposals"), envir=environment());
     holding <- t(parSapply(cl, 1:population.size, FUN=function(i) {
         k <- which(timescales[, 1] == strats[[i]]$params$T1 &
@@ -334,7 +342,8 @@ gen.strat <- function(interval=NA)
     ## } else {
     ##     T1 <- round(runif(n=1, min=interval[1], max=interval[2]));
     ## }
-    T1 <- abs(rdsct.exp(1, 0.8)) + 15;
+    ## T1 <- abs(rdsct.exp(1, 0.8)) + 15;
+    T1 <- 15 + floor(rexp(n=1, rate=1/2));
     ## L <- sample(1:3, size=1, prob=c(0.5, 0.25, 0.25));
     L <- 1;
     ## L <- abs(rdsct.exp(1, 0.4)) + 1;
@@ -342,7 +351,8 @@ gen.strat <- function(interval=NA)
     ## P(X <= 1) = 0.99
     ## E(X) = 0.3
     ## sharpe.min <- rgamma(n=1, shape=3.922878, rate=13.07631);
-    sharpe.min <- 0.2 + rexp(n=1, rate=10);
+    ## sharpe.min <- 0.3 + rexp(n=1, rate=5);
+    sharpe.min <- 0.5;
     holding <-c(rep(0, length(symbols)), 1);
     params <- list(T1=T1, L=L, sharpe.min=sharpe.min);
     return(list(params=params, holding=holding));
@@ -417,7 +427,8 @@ sample.strats <- function(n, weight.exp, ret)
             1:length(strats), size=1,
             prob=probs, replace=TRUE
         );
-        mutation <- rdsct.exp(1, mut.rate);
+        ## mutation <- rdsct.exp(1, mut.rate);
+        mutation <- floor(rexp(n=1, rate=2));
         T1 <- max(T1.min, strats[[mother]]$params$T1 + mutation);
 
         ## mutation <- rdsct.exp(1, mut.rate);
@@ -426,7 +437,8 @@ sample.strats <- function(n, weight.exp, ret)
         L <- strats[[mother]]$params$L;
 
         ## sm <- rgamma(n=1, shape=3.922878, rate=13.07631);
-        sm <- 0.2 + rexp(n=1, rate=10);
+        ## sm <- 0.3 + rexp(n=1, rate=5);
+        sm <- 0.5;
         strats.new[[i]]$params <- list(T1=T1, L=L, sharpe.min=sm);
         strats.new[[i]]$holding <- c(rep(0, p), 1);
     };
@@ -532,12 +544,12 @@ symbols <- c(
     ## "fxb",  ## British pound
     ## "fxc",  ## Canadian dollar
     "fxe",  ## euro
-    "fxy"  ## Japanese yen
+    "fxy",  ## Japanese yen
     ## "goog", ## Google
     ## "aapl",    ## Apple inc.
     ## "iau",  ## gold
-    ## "slv"  ## silver
-    ## "uso"  ## US oil fund
+    ## "slv",  ## silver
+    ## "uso",  ## US oil fund
     ## "ung"   ## US natural gas fund
     ## "dba",
     ## "jjg",
@@ -546,7 +558,7 @@ symbols <- c(
     ## "soyb"
     ## "cane"
     ## "nib"
-    ## "vxx"  ## SP500 short term volatility
+    "vxx"  ## SP500 short term volatility
     ## "vixy", ## SP500 short term volatility
     ## "vxz",  ## SP500 mid term volatility
     ## "viix"  ## SP500 short term volatility
@@ -562,18 +574,18 @@ if (!use.database) {
     ## spy, ewg, ewj
     ## rs <- dbSendQuery(database,
     ##                   paste(sprintf("select tm from %s_daily ", symbols[1]),
-    ##                         "where tm between '2011-09-19' and '2018-03-16';"
+    ##                         "where tm between '2016-01-02' and '2018-03-16';"
     ##                         ));
     ## iau, slv
     ## rs <- dbSendQuery(database,
     ##                   paste(sprintf("select tm from %s_daily ", symbols[1]),
-    ##                         "where tm between '2011-09-19' and '2018-03-29';"
+    ##                         "where tm between '2016-01-02' and '2018-03-20';"
     ##                         ));
 
     ## uup, fxe, fxy
     rs <- dbSendQuery(database,
                       paste(sprintf("select tm from %s_daily ", symbols[1]),
-                            "where tm between '2011-09-19' and '2018-03-19';"
+                            "where tm between '2009-01-30' and '2018-04-12';"
                             ));
 
     ## jjg, weat, soyb
@@ -628,7 +640,7 @@ wealth <- rep(1, length(days));
 wealth.max <- rep(1, length(days));
 
 
-t0 <- 237;
+t0 <- 80;
 ## t0 <- 410;
 t1 <- t0;
 V[t0] <- 1;
