@@ -335,113 +335,56 @@ save.stats <- function(thedate, R)
 
 gen.strat <- function(interval=NA)
 {
-    ## if (is.na(interval)) {
-    ##     ## rate <- -log(1 - 0.95^(1/population.size))/(60 - T1.min);
-    ##     rate <- 1/(20 - 15);
-    ##     T1 <- round(rexp(n=1, rate=rate)) + T1.min;
-    ## } else {
-    ##     T1 <- round(runif(n=1, min=interval[1], max=interval[2]));
-    ## }
     ## T1 <- abs(rdsct.exp(1, 0.8)) + 15;
-    T1 <- 15 + floor(rexp(n=1, rate=1/2));
-    ## L <- sample(1:3, size=1, prob=c(0.5, 0.25, 0.25));
-    L <- 1;
-    ## L <- abs(rdsct.exp(1, 0.4)) + 1;
-    ## X = sharpe.min
-    ## P(X <= 1) = 0.99
-    ## E(X) = 0.3
-    ## sharpe.min <- rgamma(n=1, shape=3.922878, rate=13.07631);
-    ## sharpe.min <- 0.3 + rexp(n=1, rate=5);
-    sharpe.min <- 0.5;
+    ## T1 <- 15 + floor(rexp(n=1, rate=1/2));
+    T1 <- sample(15:60, size=1);
     holding <-c(rep(0, length(symbols)), 1);
-    params <- list(T1=T1, L=L, sharpe.min=sharpe.min);
+    params <- list(T1=T1, L=1, sharpe.min=0.5);
     return(list(params=params, holding=holding));
 }
 
-sample.strats <- function(n, weight.exp, ret)
+sample.strats <- function(n)
 {
-    probs <- rep(NA, length(ret));
-    if (length(unique(ret)) == 1) {
-        probs <- rep(1, length(ret));
-        cat("    Equal weights.\n");
-    } else {
-        ## database = dbConnect(
-        ##     MySQL(), user='sinbaski', password='q1w2e3r4',
-        ##     dbname='market', host="localhost"
-        ## );
-        ## rs <- dbSendQuery(
-        ##     database,
-        ##     paste(
-        ##         "select distinct tm as A from StratsRet order by A desc limit 2"
-        ##     )
-        ## );
-        ## D <- tail(fetch(rs, n=-1)$A, n=1);
-        ## dbClearResult(rs);
-
-        ## rs <- dbSendQuery(
-        ##     database,
-        ##     paste(
-        ##         "select distinct ret as R from StratsRet where tm >= '", D, "';"
-        ##     )
-        ## );
-        ## X <- fetch(rs, n=-1)$R;
-        ## dbClearResult(rs);
-        ## dbDisconnect(database);
-        ## if (length(X) < 50) {
-        ##     probs <- pnorm(ret, mean=mean(X), sd=sd(X));
-        ## } else if (length(X) <= 5000) {
-        ##     shapiro <- shapiro.test(X);
-        ##     if (shapiro$p.value > 0.05) {
-        ##         probs <- pnorm(ret, mean=mean(X), sd=sd(X));
-        ##     } else {
-        ##         probs <- ecdf(X)(ret);
-        ##     }
-        ## } else {
-        ##     probs <- ecdf(X)(ret);
-        ## }
-
-        ## works with uup, fxe, fxy,
-        probs <- ecdf(ret)(ret);
-        cat("    ecdf weights.\n");
-
-        ## Works with jjg, weat, soyb
-        ## r <- 1;
-        ## a <- mean(exp(1 * ret));
-        ## b <- mean(exp(100 * ret));
-        ## if (a > 1) {
-        ##     r <- 1;
-        ## } else if (a < 1 && b > 1) {
-        ##     sol <- uniroot(f=function(x) mean(exp(x * ret)) - 1,
-        ##                    interval=c(1, 100));
-        ##     r <- sol$root;
-        ## } else {
-        ##     r <- 100;
-        ## }
-        ## probs <- exp(r * ret);
-        ## cat("    weight exponent: ", r, "\n");
-    }
-
     strats.new <- vector("list", n);
+    database = dbConnect(
+        MySQL(), user='sinbaski', password='q1w2e3r4',
+        dbname='market', host="localhost"
+    );
+    rs <- dbSendQuery(
+        database,
+        paste(
+            "select T1, sum(ret) as score",
+            "from StratsStat",
+            "group by T1",
+            "order by score desc;"
+        )
+    );
+    D <- fetch(rs, n=-1);
+    dbClearResult(rs);
+    dbDisconnect(database);
+
+    if (sum(D$score > 0) >= 1) {
+        if (sum(D$score > 0) == 1) {
+            Ts <- rep(D$T1[D$score > 0], n);
+        } else {
+            Ts <- sample(D$T1[D$score > 0], size=n,
+                         replace=TRUE, prob=D$score[D$score > 0]);
+        }
+    } else if (sum(D$score == 0) >= 1) {
+        if (sum(D$score == 0) == 1) {
+            Ts <- rep(D$T1[D$score == 0], n);
+        } else {
+            Ts <- sample(D$T1[D$score == 0], size=n, replace=TRUE);
+        }
+    } else { ## all scores are negative
+        Ts <- sample(D$T1, size=n, replace=TRUE, prob=max(D$score)/D$score);
+    }
     for (i in 1:length(strats.new)) {
-        mother <- sample(
-            1:length(strats), size=1,
-            prob=probs, replace=TRUE
-        );
-        ## mutation <- rdsct.exp(1, mut.rate);
-        mutation <- floor(rexp(n=1, rate=2));
-        T1 <- max(T1.min, strats[[mother]]$params$T1 + mutation);
-
-        ## mutation <- rdsct.exp(1, mut.rate);
-        ## mutation <- sample(-1:1, size=1, prob=c(0.025, 0.95, 0.025));
-        ## L <- max(1, strats[[mother]]$params$L + mutation);
-        L <- strats[[mother]]$params$L;
-
-        ## sm <- rgamma(n=1, shape=3.922878, rate=13.07631);
-        ## sm <- 0.3 + rexp(n=1, rate=5);
-        sm <- 0.5;
-        strats.new[[i]]$params <- list(T1=T1, L=L, sharpe.min=sm);
+        mutation <- rdsct.exp(1, mut.rate);
+        T1 <- max(T1.min, Ts[i] + mutation);
+        strats.new[[i]]$params <- list(T1=T1, L=1, sharpe.min=0.5);
         strats.new[[i]]$holding <- c(rep(0, p), 1);
-    };
+    }
     return(strats.new);
 }
 
@@ -606,6 +549,19 @@ if (!use.database) {
     rs <- dbSendQuery(database, stmt);
     dbClearResult(rs);
 
+    rs <- dbSendQuery(database, "drop view if exists StratsStat;");
+    dbClearResult(rs);
+
+    rs <- dbSendQuery(
+        database,
+        paste(
+            "create view StratsStat as",
+            "select distinct A.tm, A.T1, A.ret from StratsRet as A join (",
+            "  select distinct tm from StratsRet order by tm desc limit ",
+            resample.period, ") as B on A.tm = B.tm"
+        ));
+    dbClearResult(rs);
+
     rs <- dbSendQuery(database, "drop table if exists trade_log;");
     dbClearResult(rs);
 
@@ -674,16 +630,7 @@ for (tm in t0:length(days)) {
         x <- sum(H[1:p] * prices[dim(prices)[1]-1, ]) + H[p+1];
         ret[i] <- W[i]/x - 1;
     }
-    stats <- list(mean=NA, sd=NA);
-    ## lever <- 1;
-    ## if (tm - t0 >= status$lookback + 1) {
-    ##     R <- sapply((tm-status$lookback+1):tm, FUN=function(k) {
-    ##         V[k]/V[k-1] - 1;
-    ##     });
-    ##     stats$mean <- mean(R);
-    ##     stats$sd <- sd(R);
-    ##     lever <- exp(1000 * stats$mean);
-    ## }
+    save.stats(days[tm], ret);
 
     tau <- kendall(HHistory);
     cat("\n", sprintf("On day %d, %s, DD=%.3f, value = %.3f, wealth = %.3f\n",
@@ -694,12 +641,9 @@ for (tm in t0:length(days)) {
         );
     cat(sprintf("    E(W): %.3f (%.3fe-2)\n", mean(W), (mean(W) - 1) * 100));
     cat("    tau: ", tau, "\n");
-    ## cat("    mean: ", stats$mean, "\n");
-    ## cat("    sd: ", stats$sd, "\n");
-    ## cat("    leverage: ", lever, "\n");
-    if (tm > t0) {
+    if (tm - t0 >= resample.period) {
         N <- round(length(strats) * 0.99);
-        strats[1:N] <- sample.strats(N, weight.exp, ret);
+        strats[1:N] <- sample.strats(N);
         for (i in (N+1):length(strats)) {
             strats[[i]] <- gen.strat();
         }
@@ -776,7 +720,7 @@ for (tm in t0:length(days)) {
             apply(outcome$loading, MARGIN=2, FUN=mean)/outcome$worth
         );
     }
-    save.stats(days[tm], ret);
+
 
     ## if (is.na(stats$mean)) {
     ##     assets[2, ] <- c(rep(0, p), 1);
