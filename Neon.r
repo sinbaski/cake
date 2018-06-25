@@ -3,8 +3,8 @@ rm(list=ls());
 graphics.off();
 require(RMySQL);
 require(abind);
-require(rugarch)
-require(forecast);
+require(forecast)
+require(tseries);
 source("~/cake/libeix.r");
 
 set.seed(0);
@@ -27,10 +27,7 @@ strats <- vector("list", length=population.size);
 propose.trade <- function(T1, exposure.max, Y, E)
 {
     p <- dim(Y)[2];
-    K <- 1;
-    ## while(K <= p && E$values[K] > 1.0e-6) K <- K + 1;
-    while(K <= p && E$values[K] > 0) K <- K + 1;
-    K <- K - 1;
+    K <- max(which(E$values > 0));
     metrics <- matrix(NA, nrow=K, ncol=2);
     ES <- function(mu, sig) {
         I <- integrate(
@@ -46,13 +43,13 @@ propose.trade <- function(T1, exposure.max, Y, E)
         }
         return(es);
     }
-    d <- floor(log(dim(Y)[1]));
     for (i in 1:K) {
-        model <- fit.arma(Y[, i], order.max=c(d, d), include.mean=NA);
-        ## model <- auto.arima(Y[, i]);
-        prediction <- predict(model, n.ahead=1);
-        metrics[i, ] <- c(prediction$pred[1], prediction$se[1]);
-        ## metrics[i, ] <- c(mean(Y[, i]), E$values[i])
+        ## model <- fit.arma(Y[, i]);
+        ## prediction <- predict(model, n.ahead=1);
+        ## metrics[i, ] <- c(prediction$pred[1], prediction$se[1]);
+        model <- auto.arima(Y[, i]);
+        prediction <- forecast(model, h=1);
+        metrics[i, ] <- c(prediction$mean[1], model$sigma2);
     }
     if (sum(abs(metrics[, 1])) == 0) {
         return(c(rep(0, p), 0));
@@ -77,14 +74,6 @@ propose.trade <- function(T1, exposure.max, Y, E)
     exposure <- min(loss.tol/es, exposure.max);
     shares <- exposure * as.vector(alloc)/tail(prices, n=1);
     return(c(shares, mu/sig));
-    ## J <- which(!is.na(metrics[, 3]));
-    ## i <- J[which.max(abs(metrics[J, 3]))];
-    ## exposure <- min(
-    ##     loss.tol/metrics[i, 4],
-    ##     exposure.max/sum(abs(E$vectors[, i]))
-    ## );
-    ## shares <- sign(metrics[i, 1]) * exposure * E$vectors[, i]/tail(prices, n=1);
-    ## return(c(shares, metrics[i, 3]));
 }
 
 factor.algo <- function(T1, L, exposure.max)
@@ -114,7 +103,6 @@ qrm <- function(thedate)
 {
     p <- dim(prices)[2];
     n <- 60;
-    d <- floor(log(n));
     if (use.database) {
         database = dbConnect(MySQL(), user='sinbaski', password='q1w2e3r4',
                              dbname='market', host="localhost");
@@ -151,10 +139,14 @@ qrm <- function(thedate)
             log(log(S[k, i, 1]/S[k, i, 2]))
         });
         ret[, i] <- tail(S[, i, 3], n=-1)/head(S[, i, 3], n=-1) - 1;
-        model.ret <- fit.arma(ret[, i], order.max=c(d,d), include.mean=NA);
-        prediction[i, 1] <- predict(model.ret, n.ahead=1)$pred[1];
-        model.vol <- fit.arma(vl[, i], order.max=c(d,d), include.mean=NA);
-        prediction[i, 2] <- exp(predict(model.vol, n.ahead=1)$pred[1]);
+        ## model.ret <- fit.arma(ret[, i]);
+        ## prediction[i, 1] <- predict(model.ret, n.ahead=1)$pred[1];
+        ## model.vol <- fit.arma(vl[, i]);
+        ## prediction[i, 2] <- exp(predict(model.vol, n.ahead=1)$pred[1]);
+        model.ret <- auto.arima(ret[, i]);
+        prediction[i, 1] <- forecast(model.ret, h=1)$mean[1];
+        model.vol <- auto.arima(vl[, i]);
+        prediction[i, 2] <- exp(forecast(model.vol, h=1)$mean[1]);
     }
     if (use.database) {
         dbDisconnect(database);
@@ -222,7 +214,7 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
     ##     W <- WR[1, ]/mean(WR[1, ]);
     ## }
     ## stopifnot(min(W) > 0);
-    W <- rep(1, length(strats));
+    ## W <- rep(1, length(strats));
 
 
     timescales <- t(unique(
@@ -230,19 +222,10 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
             pa <- strats[[i]]$params;
             c(pa$T1, pa$L);
         }), MARGIN=2));
-    clusterExport(cl, c("prices", "strats", "exposure.max", "fit.arma",
+    clusterExport(cl, c("prices", "strats", "exposure.max", "auto.arima",
                         "factor.algo", "propose.trade", "loss.tol",
-                        "forecast"));
+                        "adf.test", "forecast"));
     clusterExport(cl, c("timescales"), envir=environment());
-    ## proposals <- foreach(
-    ##     i=1:dim(timescales)[1],
-    ##     .combine='rbind',
-    ##     .packages=c("forecast"),
-    ##     export=c("prices", "strats", "exposure.max",
-    ##              "factor.algo", "propose.trade", "loss.tol")
-    ## ) %dopar% {
-    ##         factor.algo(timescales[i, 1], timescales[i, 2], exposure.max);
-    ## };
     proposals <- t(parSapply(
         cl, 1:dim(timescales)[1], FUN=function(i) {
             factor.algo(timescales[i, 1], timescales[i, 2], exposure.max);
@@ -258,29 +241,28 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
         k <- which(timescales[, 1] == strats[[i]]$params$T1 &
                    timescales[, 2] == strats[[i]]$params$L);
         if (tail(proposals[k, ], n=1) > strats[[i]]$params$sharpe.min) {
-            shares <- head(proposals[k, ], n=-1) * W[i];
+            ## shares <- head(proposals[k, ], n=-1) * W[i];
+            shares <- head(proposals[k, ], n=-1);
             H <- rep(NA, p+1);
-            H[p+1] <- W[i] - sum(shares * tail(prices, n=1));
+            H[p+1] <- 1 - sum(shares * tail(prices, n=1));
             H[1:p] <- shares;
             H;
         } else {
-            c(rep(0, p), W[i]);
+            c(rep(0, p), 1);
         }
     }));
-    loading <- matrix(NA, nrow=length(strats), ncol=p);
-    for (i in 1:dim(loading)[1]) {
-        loading[i, ] <- holding[i, 1:p] * prices[n, ];
-    }
-    H <- apply(loading, MARGIN=2, FUN=mean);
-    worth <- sum(H) + mean(holding[, p+1]);
-    exposure <- sum(abs(H));
+    H <- apply(holding, MARGIN=2, FUN=mean);
+    G <- as.vector(H[1:p] * tail(prices, n=1));
+    stopifnot(abs(sum(G) + H[p+1] - 1) < 1.0e-8);
+
+    exposure <- sum(abs(G));
     if (exposure > 0) {
-        G <- H/exposure;
+        G <- G/exposure;
 
         ## Risk management
-        forecast <- qrm(thedate);
-        sig <- sqrt(G %*% forecast$cov.mtx %*% G);
-        mu <- sum(G * forecast$mean);
+        prediction <- qrm(thedate);
+        sig <- sqrt(t(G) %*% prediction$cov.mtx %*% G);
+        mu <- sum(G * prediction$mean);
         ## expected shortfall
         J <- integrate(f=function(x) x * dnorm(x, mean=mu, sd=sig),
                        lower=-Inf, upper=qnorm(confidence, mean=mu, sd=sig),
@@ -289,13 +271,14 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
         es <- J$value/confidence;
         ## scaling w.r.t. H
         scaling <- min(risk.tol/abs(es), exposure.max)/exposure;
-        holding[, 1:p] <- holding[, 1:p] * scaling;
-        holding[, p+1] <- holding[, 1+p] +
-            (1 - scaling) * apply(loading, MARGIN=1, FUN=sum);
-        loading <- loading * scaling;
-        H <- H * scaling;
+        ## holding[, 1:p] <- holding[, 1:p] * scaling;
+        ## holding[, p+1] <- holding[, 1+p] +
+        ##     (1 - scaling) * apply(loading, MARGIN=1, FUN=sum);
+        ## loading <- loading * scaling;
+        H[1:p] <- H[1:p] * scaling;
+        H[p+1] <- 1 - sum(H[1:p] * tail(prices, n=1));
     }
-    return(list(holding=holding, loading=loading, worth=worth));
+    return(list(holding=holding, assets=H));
 }
 
 save.stats <- function(thedate, R)
@@ -335,7 +318,7 @@ gen.strat <- function(interval=NA)
     ## T1 <- 15 + floor(rexp(n=1, rate=1/2));
     T1 <- sample(15:60, size=1);
     holding <-c(rep(0, length(symbols)), 1);
-    params <- list(T1=T1, L=1, sharpe.min=0.2);
+    params <- list(T1=T1, L=1, sharpe.min=0.1);
     return(list(params=params, holding=holding));
 }
 
@@ -358,11 +341,12 @@ sample.strats <- function(n)
     D <- fetch(rs, n=-1);
     dbClearResult(rs);
     dbDisconnect(database);
-    if (unique(D$score) > 1) {
-        Ts <- sample(D$T1, size=n, replace=TRUE, prob=D$score-min(D$score));
+    if (min(D$score) == 0) {
+        weights <- 2^(D$score * 1.0e+3);
     } else {
-        Ts <- sample(D$T1, size=n, replace=TRUE);
+        weights <- sqrt(D$score-min(D$score));
     }
+    Ts <- sample(D$T1, size=n, replace=TRUE, prob=weights);
 
     ## if (sum(D$score > 0) >= 1) {
     ##     if (sum(D$score > 0) == 1) {
@@ -383,7 +367,7 @@ sample.strats <- function(n)
     for (i in 1:length(strats.new)) {
         mutation <- rdsct.exp(1, mut.rate);
         T1 <- max(T1.min, Ts[i] + mutation);
-        strats.new[[i]]$params <- list(T1=T1, L=1, sharpe.min=0.2);
+        strats.new[[i]]$params <- list(T1=T1, L=1, sharpe.min=0.1);
         strats.new[[i]]$holding <- c(rep(0, p), 1);
     }
     return(strats.new);
@@ -488,7 +472,7 @@ symbols <- c(
     ## "fxb",  ## British pound
     ## "fxc",  ## Canadian dollar
     "fxe",  ## euro
-    "fxy"  ## Japanese yen
+    "fxy",  ## Japanese yen
     ## "goog", ## Google
     ## "aapl",    ## Apple inc.
     ## "iau",  ## gold
@@ -502,7 +486,7 @@ symbols <- c(
     ## "soyb"
     ## "cane"
     ## "nib"
-    ## "vxx"  ## SP500 short term volatility
+    "vxx"  ## SP500 short term volatility
     ## "vixy", ## SP500 short term volatility
     ## "vxz",  ## SP500 mid term volatility
     ## "viix"  ## SP500 short term volatility
@@ -606,7 +590,6 @@ p <- length(symbols);
 for (i in 1:length(strats)) {
     strats[[i]] <- gen.strat();
 }
-HHistory <- {};
 assets <- matrix(
     rep(c(rep(0, length(symbols)), V[t0]), 2),
     nrow=2, ncol=1+p,
@@ -631,17 +614,16 @@ for (tm in t0:length(days)) {
         x <- sum(H[1:p] * prices[dim(prices)[1]-1, ]) + H[p+1];
         ret[i] <- W[i]/x - 1;
     }
+    stopifnot(max(ret) < 1 && min(ret) > -1);
     save.stats(days[tm], ret);
 
-    tau <- kendall(HHistory);
     cat("\n", sprintf("On day %d, %s, DD=%.3f, value = %.3f, wealth = %.3f\n",
                       tm, days[tm], DD[tm], V[tm], wealth[tm]));
-    cat(sprintf("    ret: %.3fe-2, %.3fe-2\n", mean(ret)*100, sd(ret)*100));
+    cat(sprintf("    ret: %.3fe-4\n", (V[tm]/V[tm-1] - 1) * 1.0e+4));
     cat("    ret quantiles: ",
         quantile(ret, probs=c(0.02, 0.16, 0.5, 0.84, 0.98)), "\n"
         );
     cat(sprintf("    E(W): %.3f (%.3fe-2)\n", mean(W), (mean(W) - 1) * 100));
-    cat("    tau: ", tau, "\n");
     if (tm - t0 >= resample.period) {
         N <- round(length(strats) * 0.99);
         strats[1:N] <- sample.strats(N);
@@ -650,89 +632,20 @@ for (tm in t0:length(days)) {
         }
         prices <- update.prices(tm);
     }
-    ## weight.exp <- if (is.na(stats$sd)) 50 else stats$sd * 3.0e+4;
-    ## if (tm > t0) {
-    ##     weight.exp <- 50;
-    ##     if (tm - t1 == 40) {
-    ##         N <- round(length(strats) * 0.8);
-    ##         strats[1:N] <- sample.strats(N, weight.exp, ret);
-    ##         for (i in (N+1):length(strats)) {
-    ##             strats[[i]] <- gen.strat();
-    ##         }
-    ##         t1 <- tm;
-    ##     } else {
-    ##         strats <- sample.strats(length(strats), weight.exp, ret);
-    ##     }
-    ##     prices <- update.prices(tm);
-    ## }
-    ## if (tm - t1 == 50) {
-    ##     for (i in 1:length(strats)) {
-    ##         strats[[i]] <- gen.strat();
-    ##     }
-    ##     t1 <- tm;
-    ##     cat("    regenerate.\n");
-    ## } else
-    ## if (tm > t0) {
-    ##     candidates <- sample.strats(length(strats), weight.exp, ret);
-    ##     timescales <- sapply(1:length(strats), FUN=function(i) {
-    ##         candidates[[i]]$params$T1;
-    ##     });
-    ##     if (min(timescales) <= T1.maxmin) {
-    ##         strats <- candidates;
-    ##     } else {
-    ##         N <- round(length(strats) * 0.8);
-    ##         strats[1:N] <- sample.strats(N, weight.exp, ret);
-    ##         for (i in (N+1):length(strats)) {
-    ##             strats[[i]] <- gen.strat();
-    ##         }
-    ##         timescales <- sapply(1:length(strats), FUN=function(i) {
-    ##             strats[[i]]$params$T1;
-    ##         });
-    ##         cat("    part regenerate.\n");
-    ##     }
-    ##     prices <- update.prices(tm);
-    ## } else {
-    ##     timescales <- sapply(1:length(strats), FUN=function(i) {
-    ##         strats[[i]]$params$T1;
-    ##     });
-    ## }
     T1 <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$T1);
     Q <- quantile(T1, probs=c(0.05, 0.95));
     cat("    T1: ", min(T1), Q[1], mean(T1), Q[2], max(T1), "\n");
-
-    L <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$L);
-    Q <- quantile(L, probs=c(0.05, 0.95));
-    cat("    L: ", min(L), Q[1], mean(L), Q[2], max(L), "\n");
 
     outcome <- trade(days[tm]);
     for (i in 1:length(strats)) {
         strats[[i]]$holding <- outcome$holding[i, ];
     }
-    assets[1, ] <- apply(outcome$holding, MARGIN=2, FUN=mean)/outcome$worth;
+    assets[1, ] <- outcome$assets;
     stopifnot(
         abs(sum(tail(prices, n=1) * assets[1, 1:p]) + assets[1, p+1] - 1) < 1.0e-9
     );
 
-    if (length(HHistory) == 0) {
-        HHistory <- apply(outcome$loading, MARGIN=2, FUN=mean);
-    } else {
-        HHistory <- rbind(
-            HHistory,
-            apply(outcome$loading, MARGIN=2, FUN=mean)/outcome$worth
-        );
-    }
 
-
-    ## if (is.na(stats$mean)) {
-    ##     assets[2, ] <- c(rep(0, p), 1);
-    ##     cat("    leverage: ", 1, "\n");
-    ## } else {
-    ##     c <- exposure.max/sum(abs(assets[1, 1:p]) * tail(prices, n=1));
-    ##     lever <- min(c, lever);
-    ##     assets[2, 1:p] <- assets[1, 1:p] * lever;
-    ##     assets[2, p+1] <- 1 - sum(tail(prices, n=1) * assets[2, 1:p]);
-    ##     cat("    leverage: ", min(lever, c), "\n");
-    ## }
     assets[2, ] <- assets[1, ];
 
     assets[1, ] <- assets[1, ] * V[tm];
