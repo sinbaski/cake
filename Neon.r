@@ -12,7 +12,7 @@ set.seed(0);
 population.size <- 500;
 mut.rate <- 0.15;
 exposure.max <- 1.5;
-resample.period <- 5;
+resample.period <- 3;
 
 T1.min <- 15;
 T1.maxmin <- 25;
@@ -48,10 +48,10 @@ propose.trade <- function(T1, exposure.max, Y, E)
     }
     d <- floor(log(dim(Y)[1]));
     for (i in 1:K) {
-        ## model <- fit.arma(Y[, i], order.max=c(d, d), include.mean=NA);
-        model <- auto.arima(Y[, i]);
-        prediction <- forecast(model, h=1);
-        metrics[i, ] <- c(prediction$mean[1], model$sigma2);
+        model <- fit.arma(Y[, i], order.max=c(d, d), include.mean=NA);
+        ## model <- auto.arima(Y[, i]);
+        prediction <- predict(model, n.ahead=1);
+        metrics[i, ] <- c(prediction$pred[1], prediction$se[1]);
         ## metrics[i, ] <- c(mean(Y[, i]), E$values[i])
     }
     if (sum(abs(metrics[, 1])) == 0) {
@@ -61,12 +61,18 @@ propose.trade <- function(T1, exposure.max, Y, E)
     B <- B / sum(abs(B));
 
     mu <- t(B) %*% metrics[, 1];
+    sig <- sqrt(t(B^2) %*% metrics[, 2]);
 
     M <- E$vector[, 1:K];
     alloc <- M %*% B;
-    alloc <- alloc/sum(abs(alloc));
+    c <- sum(abs(alloc));
+    alloc <- alloc/c;
 
-    sig <- sqrt(t(B^2) %*% metrics[, 2]);
+    mu <- mu/c;
+    sig <- sig/c;
+
+    stopifnot(mu > 0);
+
     es <- ES(mu, sig);
     exposure <- min(loss.tol/es, exposure.max);
     shares <- exposure * as.vector(alloc)/tail(prices, n=1);
@@ -121,7 +127,7 @@ qrm <- function(thedate)
     ## We use univariate models, which don't account for covariances
     ## and hence are inaccurate, but multivariate models are
     ## computationally infeasible due to a large number of parameters.
-    forecast <- matrix(NA, nrow=p, ncol=2);
+    prediction <- matrix(NA, nrow=p, ncol=2);
     for (i in 1:p) {
         if (use.database) {
             stmt <- sprintf(paste(
@@ -146,25 +152,15 @@ qrm <- function(thedate)
         });
         ret[, i] <- tail(S[, i, 3], n=-1)/head(S[, i, 3], n=-1) - 1;
         model.ret <- fit.arma(ret[, i], order.max=c(d,d), include.mean=NA);
-        if (length(coef(model.ret)) >= 1) {
-            forecast[i, 1] <- predict(model.ret, n.ahead=1)$pred[1];
-        } else {
-            forecast[i, 1] <- 0;
-        }
+        prediction[i, 1] <- predict(model.ret, n.ahead=1)$pred[1];
         model.vol <- fit.arma(vl[, i], order.max=c(d,d), include.mean=NA);
-        if (length(coef(model.vol)) >= 1) {
-            forecast[i, 2] <- exp(predict(model.vol, n.ahead=1)$pred[1]);
-        } else {
-            forecast[i, 2] <- exp(mean(vl[, i]));
-        }
+        prediction[i, 2] <- exp(predict(model.vol, n.ahead=1)$pred[1]);
     }
     if (use.database) {
         dbDisconnect(database);
     }
-    C <- cor(ret);
-    outer <- forecast[, 2] %*% t(forecast[, 2]);
-    C <- C * outer;
-    return(list(mean=forecast[, 1], cov.mtx=C));
+    C <- cor(ret) * (prediction[, 2] %*% t(prediction[, 2]));
+    return(list(mean=prediction[, 1], cov.mtx=C));
 }
 
 send.trade <- function(thedate, worth, holding)
@@ -234,7 +230,7 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
             pa <- strats[[i]]$params;
             c(pa$T1, pa$L);
         }), MARGIN=2));
-    clusterExport(cl, c("prices", "strats", "exposure.max", "auto.arima",
+    clusterExport(cl, c("prices", "strats", "exposure.max", "fit.arma",
                         "factor.algo", "propose.trade", "loss.tol",
                         "forecast"));
     clusterExport(cl, c("timescales"), envir=environment());
@@ -261,7 +257,7 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
     holding <- t(parSapply(cl, 1:population.size, FUN=function(i) {
         k <- which(timescales[, 1] == strats[[i]]$params$T1 &
                    timescales[, 2] == strats[[i]]$params$L);
-        if (abs(tail(proposals[k, ], n=1)) > strats[[i]]$params$sharpe.min) {
+        if (tail(proposals[k, ], n=1) > strats[[i]]$params$sharpe.min) {
             shares <- head(proposals[k, ], n=-1) * W[i];
             H <- rep(NA, p+1);
             H[p+1] <- W[i] - sum(shares * tail(prices, n=1));
@@ -339,7 +335,7 @@ gen.strat <- function(interval=NA)
     ## T1 <- 15 + floor(rexp(n=1, rate=1/2));
     T1 <- sample(15:60, size=1);
     holding <-c(rep(0, length(symbols)), 1);
-    params <- list(T1=T1, L=1, sharpe.min=0.5);
+    params <- list(T1=T1, L=1, sharpe.min=0.2);
     return(list(params=params, holding=holding));
 }
 
@@ -362,27 +358,32 @@ sample.strats <- function(n)
     D <- fetch(rs, n=-1);
     dbClearResult(rs);
     dbDisconnect(database);
-
-    if (sum(D$score > 0) >= 1) {
-        if (sum(D$score > 0) == 1) {
-            Ts <- rep(D$T1[D$score > 0], n);
-        } else {
-            Ts <- sample(D$T1[D$score > 0], size=n,
-                         replace=TRUE, prob=D$score[D$score > 0]);
-        }
-    } else if (sum(D$score == 0) >= 1) {
-        if (sum(D$score == 0) == 1) {
-            Ts <- rep(D$T1[D$score == 0], n);
-        } else {
-            Ts <- sample(D$T1[D$score == 0], size=n, replace=TRUE);
-        }
-    } else { ## all scores are negative
-        Ts <- sample(D$T1, size=n, replace=TRUE, prob=max(D$score)/D$score);
+    if (unique(D$score) > 1) {
+        Ts <- sample(D$T1, size=n, replace=TRUE, prob=D$score-min(D$score));
+    } else {
+        Ts <- sample(D$T1, size=n, replace=TRUE);
     }
+
+    ## if (sum(D$score > 0) >= 1) {
+    ##     if (sum(D$score > 0) == 1) {
+    ##         Ts <- rep(D$T1[D$score > 0], n);
+    ##     } else {
+    ##         Ts <- sample(D$T1[D$score > 0], size=n,
+    ##                      replace=TRUE, prob=D$score[D$score > 0]);
+    ##     }
+    ## } else if (sum(D$score == 0) >= 1) {
+    ##     if (sum(D$score == 0) == 1) {
+    ##         Ts <- rep(D$T1[D$score == 0], n);
+    ##     } else {
+    ##         Ts <- sample(D$T1[D$score == 0], size=n, replace=TRUE);
+    ##     }
+    ## } else { ## all scores are negative
+    ##     Ts <- sample(D$T1, size=n, replace=TRUE, prob=max(D$score)/D$score);
+    ## }
     for (i in 1:length(strats.new)) {
         mutation <- rdsct.exp(1, mut.rate);
         T1 <- max(T1.min, Ts[i] + mutation);
-        strats.new[[i]]$params <- list(T1=T1, L=1, sharpe.min=0.5);
+        strats.new[[i]]$params <- list(T1=T1, L=1, sharpe.min=0.2);
         strats.new[[i]]$holding <- c(rep(0, p), 1);
     }
     return(strats.new);
@@ -487,7 +488,7 @@ symbols <- c(
     ## "fxb",  ## British pound
     ## "fxc",  ## Canadian dollar
     "fxe",  ## euro
-    "fxy",  ## Japanese yen
+    "fxy"  ## Japanese yen
     ## "goog", ## Google
     ## "aapl",    ## Apple inc.
     ## "iau",  ## gold
@@ -501,7 +502,7 @@ symbols <- c(
     ## "soyb"
     ## "cane"
     ## "nib"
-    "vxx"  ## SP500 short term volatility
+    ## "vxx"  ## SP500 short term volatility
     ## "vixy", ## SP500 short term volatility
     ## "vxz",  ## SP500 mid term volatility
     ## "viix"  ## SP500 short term volatility
