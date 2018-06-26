@@ -15,7 +15,7 @@ exposure.max <- 1.5;
 resample.period <- 3;
 
 T1.min <- 15;
-T1.maxmin <- 25;
+sharpe.min=0.3;
 loss.tol <- 5.0e-3;
 
 num.cores <- 6;
@@ -224,7 +224,7 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
         }), MARGIN=2));
     clusterExport(cl, c("prices", "strats", "exposure.max", "auto.arima",
                         "factor.algo", "propose.trade", "loss.tol",
-                        "adf.test", "forecast"));
+                        "sharpe.min", "adf.test", "forecast"));
     clusterExport(cl, c("timescales"), envir=environment());
     proposals <- t(parSapply(
         cl, 1:dim(timescales)[1], FUN=function(i) {
@@ -240,7 +240,7 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
     holding <- t(parSapply(cl, 1:population.size, FUN=function(i) {
         k <- which(timescales[, 1] == strats[[i]]$params$T1 &
                    timescales[, 2] == strats[[i]]$params$L);
-        if (tail(proposals[k, ], n=1) > strats[[i]]$params$sharpe.min) {
+        if (tail(proposals[k, ], n=1) > sharpe.min) {
             ## shares <- head(proposals[k, ], n=-1) * W[i];
             shares <- head(proposals[k, ], n=-1);
             H <- rep(NA, p+1);
@@ -288,20 +288,16 @@ save.stats <- function(thedate, R)
     stmt <- paste(
         "insert into StratsRet values",
         sprintf(
-            "('%s', %d, %.3f, %e)",
-            thedate, strats[[1]]$params$T1,
-            strats[[1]]$params$sharpe.min,
-            R[1]
+            "('%s', %d, %e)",
+            thedate, strats[[1]]$params$T1, R[1]
         )
     );
     for (i in 2:length(strats)) {
         stmt <- paste(
             stmt,
             sprintf(
-                "('%s', %d, %.3f, %e)",
-                thedate, strats[[i]]$params$T1,
-                strats[[i]]$params$sharpe.min,
-                R[i]
+                "('%s', %d, %e)",
+                thedate, strats[[i]]$params$T1, R[i]
             ),
             sep=","
         );
@@ -318,35 +314,45 @@ gen.strat <- function(interval=NA)
     ## T1 <- 15 + floor(rexp(n=1, rate=1/2));
     T1 <- sample(15:60, size=1);
     holding <-c(rep(0, length(symbols)), 1);
-    params <- list(T1=T1, L=1, sharpe.min=0.1);
+    params <- list(T1=T1, L=1);
     return(list(params=params, holding=holding));
 }
 
-sample.strats <- function(n)
+sample.strats <- function(n, R)
 {
     strats.new <- vector("list", n);
-    database = dbConnect(
-        MySQL(), user='sinbaski', password='q1w2e3r4',
-        dbname='market', host="localhost"
-    );
-    rs <- dbSendQuery(
-        database,
-        paste(
-            "select T1, sum(ret) as score",
-            "from StratsStat",
-            "group by T1",
-            "order by score desc;"
-        )
-    );
-    D <- fetch(rs, n=-1);
-    dbClearResult(rs);
-    dbDisconnect(database);
-    if (min(D$score) == 0) {
-        weights <- 2^(D$score * 1.0e+3);
-    } else {
-        weights <- sqrt(D$score-min(D$score));
-    }
-    Ts <- sample(D$T1, size=n, replace=TRUE, prob=weights);
+    ## database = dbConnect(
+    ##     MySQL(), user='sinbaski', password='q1w2e3r4',
+    ##     dbname='market', host="localhost"
+    ## );
+    ## rs <- dbSendQuery(
+    ##     database,
+    ##     paste(
+    ##         "select T1, sum(ret) as score",
+    ##         "from StratsStat",
+    ##         "group by T1",
+    ##         "order by score desc;"
+    ##     )
+    ## );
+    ## D <- fetch(rs, n=-1);
+    ## dbClearResult(rs);
+    ## dbDisconnect(database);
+    ## if (min(D$score) == 0) {
+    ##     weights <- 2^(D$score * 1.0e+3);
+    ## } else {
+    ##     weights <- sqrt(D$score-min(D$score));
+    ## }
+    ## if (length(unique((D$score))) > 1) {
+    ##     weights <- ecdf(D$score)(D$score);
+    ## } else {
+    ##     weights <- rep(1, length(D$score));
+    ## }
+    ensemble <- lapply(1:length(strats),
+                       FUN=function(i) strats[[i]]$params$T1);
+    weights <-
+
+    Ts <- sample(ensemble, size=n,
+                 replace=TRUE, prob=exp(D$score * 200));
 
     ## if (sum(D$score > 0) >= 1) {
     ##     if (sum(D$score > 0) == 1) {
@@ -365,9 +371,10 @@ sample.strats <- function(n)
     ##     Ts <- sample(D$T1, size=n, replace=TRUE, prob=max(D$score)/D$score);
     ## }
     for (i in 1:length(strats.new)) {
-        mutation <- rdsct.exp(1, mut.rate);
-        T1 <- max(T1.min, Ts[i] + mutation);
-        strats.new[[i]]$params <- list(T1=T1, L=1, sharpe.min=0.1);
+        ## mutation <- rdsct.exp(1, mut.rate);
+        ## T1 <- max(T1.min, Ts[i] + mutation);
+        T1 <- Ts[i];
+        strats.new[[i]]$params <- list(T1=T1, L=1);
         strats.new[[i]]$holding <- c(rep(0, p), 1);
     }
     return(strats.new);
@@ -529,7 +536,7 @@ if (!use.database) {
     dbClearResult(rs);
     stmt <- paste(
         "create table StratsRet (",
-        "tm date, T1 tinyint unsigned, sm float, ret double);"
+        "tm date, T1 tinyint unsigned, ret double);"
     );
     rs <- dbSendQuery(database, stmt);
     dbClearResult(rs);
@@ -626,7 +633,7 @@ for (tm in t0:length(days)) {
     cat(sprintf("    E(W): %.3f (%.3fe-2)\n", mean(W), (mean(W) - 1) * 100));
     if (tm - t0 >= resample.period) {
         N <- round(length(strats) * 0.99);
-        strats[1:N] <- sample.strats(N);
+        strats[1:N] <- sample.strats(N, ret);
         for (i in (N+1):length(strats)) {
             strats[[i]] <- gen.strat();
         }

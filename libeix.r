@@ -1,4 +1,5 @@
 require(sde);
+require(tseries);
 
 erf <- function(x) 2 * pnorm(x * sqrt(2)) - 1;
 last <- function(x) tail(x, n=1);
@@ -36,41 +37,32 @@ rdsct.exp <- function(n, q)
     return(S * floor(log(1-U)/log(q)));
 }
 
-fit.arma <- function(X, order.max=c(1,1), include.mean=NA)
+## fit.arma <- function(X, order.max=c(1,1), include.mean=NA)
+fit.arma <- function(X)
 {
-    bic <- Inf;
-    model <- list(bic=Inf);
-    for (j in 0:order.max[1]) {
-        for (k in 0:order.max[2]) {
-            if (is.na(include.mean)) {
-                flags <- c(FALSE, TRUE);
-            } else {
-                flags <- include.mean;
-            }
-            mdl <- vector("list", length=length(flags));
-            for (flag in flags) {
-                for (m in 1:length(mdl)) {
-                    mdl[[m]] <- tryCatch(
-                    {
-                        arima(X, order=c(j, 0, k), include.mean=flag)
-                    }, warning=function(w) {
-                        list(code=-1, BIC=Inf);
-                    }, error=function(e) {
-                        list(code=-1, BIC=Inf);
-                    });
-                }
-                bics <- c(
-                    sapply(
-                        1:length(flags),
-                        function(i) if (mdl[[i]]$code == 0) BIC(mdl[[i]]) else Inf
-                    ),
-                    bic
-                );
-                selected <- which.min(bics);
-                if (selected <= length(flags)) {
-                    model <- mdl[[selected]];
-                    bic <- bics[selected];
-                }
+    X1 <- X;
+    d <- 0;
+    while (adf.test(X1)$p.value > 0.2 && d < 2) {
+        X1 <- diff(X1);
+        d <- d + 1;
+    }
+    include.mean <- d == 0 && t.test(X1)$p.value < 0.1;
+    order <- max(floor(log(length(X))) - 1, 1);
+    aic <- Inf;
+    model <- list(aic=Inf);
+    for (j in 0:order) {
+        for (k in 0:order) {
+            mdl <- tryCatch(
+            {
+                arima(X, order=c(j, d, k), include.mean=include.mean);
+            }, warning=function(w) {
+                list(code=-1, aic=Inf);
+            }, error=function(e) {
+                list(code=-1, aic=Inf);
+            });
+            if (mdl$aic < aic) {
+                model <- mdl;
+                aic <- mdl$aic;
             }
         }
     }
@@ -229,7 +221,7 @@ fit.OU <- function(ts)
             if (params$convergence != 0) list(fitted=FALSE) else list(fitted=TRUE, par=params$par);
         }, error=function(e) {
             list(fitted=FALSE);
-        }
+c        }
     );
     return(fit);
 }
@@ -238,7 +230,8 @@ fit.BS <- function(ts)
 {
     minus.log.lik <- function(mu, sig)
     {
-        -sum(dcBS(x=tail(ts, n=-1), Dt=1, x0=head(ts, n=-1), theta=c(mu, sig), log=TRUE))
+        -sum(dcBS(x=tail(ts, n=-1), Dt=1, x0=head(ts, n=-1),
+                  theta=c(mu, sig), log=TRUE))
     }
     ## X <- diff(log(ts));
     X <- tail(ts, n=-1)/head(ts, n=-1) - 1;
@@ -264,7 +257,8 @@ fit.BS <- function(ts)
                          S0 * exp(params$par[1]* tm)
                      },
                      sd.proc=function(S0, tm) {
-                         S0 * exp(params$par[1] * tm) * sqrt(exp(params$par[2]^2 * tm) - 1)
+                         S0 * exp(params$par[1] * tm) *
+                             sqrt(exp(params$par[2]^2 * tm) - 1)
                      }
                  );
         }, error=function(e) {
@@ -300,7 +294,8 @@ fit.BM <- function(ts)
                             ## upper=c(mu.ub, sig.init*2),
                             control=list(factr=0.001, maxit=500)
                             );
-            if (params$convergence != 0) list(fitted=FALSE) else list(fitted=TRUE, par=params$par);
+            if (params$convergence != 0) list(fitted=FALSE)
+            else list(fitted=TRUE, par=params$par);
         }, error=function(e) {
             list(fitted=FALSE);
         }
