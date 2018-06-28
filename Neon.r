@@ -12,7 +12,7 @@ set.seed(0);
 population.size <- 500;
 mut.rate <- 0.15;
 exposure.max <- 1.5;
-resample.period <- 3;
+resample.period <- 1;
 
 T1.min <- 15;
 sharpe.min=0.3;
@@ -337,22 +337,19 @@ sample.strats <- function(n, R)
     ## D <- fetch(rs, n=-1);
     ## dbClearResult(rs);
     ## dbDisconnect(database);
-    ## if (min(D$score) == 0) {
-    ##     weights <- 2^(D$score * 1.0e+3);
+    weights <- exp(10 * sqrt(R - min(R)));
+    ## if (min(R) == 0) {
+    ##     weights <- exp(10 * sqrt(R - min(R)));
     ## } else {
-    ##     weights <- sqrt(D$score-min(D$score));
+    ##     weights <- sqrt(R - min(R));
     ## }
     ## if (length(unique((D$score))) > 1) {
     ##     weights <- ecdf(D$score)(D$score);
     ## } else {
     ##     weights <- rep(1, length(D$score));
     ## }
-    ensemble <- lapply(1:length(strats),
-                       FUN=function(i) strats[[i]]$params$T1);
-    weights <-
-
-    Ts <- sample(ensemble, size=n,
-                 replace=TRUE, prob=exp(D$score * 200));
+    ensemble <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$T1);
+    Ts <- sample(ensemble, size=n, replace=TRUE, prob=weights);
 
     ## if (sum(D$score > 0) >= 1) {
     ##     if (sum(D$score > 0) == 1) {
@@ -373,7 +370,7 @@ sample.strats <- function(n, R)
     for (i in 1:length(strats.new)) {
         ## mutation <- rdsct.exp(1, mut.rate);
         ## T1 <- max(T1.min, Ts[i] + mutation);
-        T1 <- Ts[i];
+        T1 <- max(T1.min, Ts[i]);
         strats.new[[i]]$params <- list(T1=T1, L=1);
         strats.new[[i]]$holding <- c(rep(0, p), 1);
     }
@@ -602,7 +599,6 @@ assets <- matrix(
     nrow=2, ncol=1+p,
     byrow=TRUE
 );
-status <- list(lookback=T1.min);
 for (tm in t0:length(days)) {
     ## update prices
     prices <- update.prices(tm);
