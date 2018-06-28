@@ -136,7 +136,8 @@ qrm <- function(thedate)
         });
 
         vl[, i] <- sapply(2:(n+1), FUN=function(k) {
-            log(log(S[k, i, 1]/S[k, i, 2]))
+            if (S[k, i, 1] > S[k, i, 2]) log(log(S[k, i, 1]/S[k, i, 2]))
+            else NA;
         });
         ret[, i] <- tail(S[, i, 3], n=-1)/head(S[, i, 3], n=-1) - 1;
         ## model.ret <- fit.arma(ret[, i]);
@@ -337,17 +338,20 @@ sample.strats <- function(n, R)
     ## D <- fetch(rs, n=-1);
     ## dbClearResult(rs);
     ## dbDisconnect(database);
-    weights <- exp(10 * sqrt(R - min(R)));
     ## if (min(R) == 0) {
     ##     weights <- exp(10 * sqrt(R - min(R)));
     ## } else {
     ##     weights <- sqrt(R - min(R));
     ## }
-    ## if (length(unique((D$score))) > 1) {
-    ##     weights <- ecdf(D$score)(D$score);
-    ## } else {
-    ##     weights <- rep(1, length(D$score));
-    ## }
+
+
+    ## weights <- exp(10 * sqrt(R - min(R)));
+    if (length(unique((R))) > 1) {
+        ## weights <- pnorm((R - mean(R))/sd(R));
+        weights <- exp(10 * sqrt(R - min(R)));
+    } else {
+        weights <- rep(1, length(R));
+    }
     ensemble <- sapply(1:length(strats), FUN=function(i) strats[[i]]$params$T1);
     Ts <- sample(ensemble, size=n, replace=TRUE, prob=weights);
 
@@ -369,8 +373,9 @@ sample.strats <- function(n, R)
     ## }
     for (i in 1:length(strats.new)) {
         ## mutation <- rdsct.exp(1, mut.rate);
-        ## T1 <- max(T1.min, Ts[i] + mutation);
-        T1 <- max(T1.min, Ts[i]);
+        mutation <- rnorm(n=1, mean=0, sd=0.5);
+        T1 <- max(T1.min, Ts[i] + sign(mutation)*floor(abs(mutation)));
+        ## T1 <- max(T1.min, T1);
         strats.new[[i]]$params <- list(T1=T1, L=1);
         strats.new[[i]]$holding <- c(rep(0, p), 1);
     }
@@ -461,7 +466,7 @@ update.prices <- function(tm)
 }
 
 symbols <- c(
-    ## "spy",  ## S&P 500
+    "spy",  ## S&P 500
     ## "dia",  ## Dow Jones
     ## "qqq",  ## Nasdaq
     ## "ezu",  ## Euro zone equities
@@ -517,7 +522,7 @@ if (!use.database) {
     ## uup, fxe, fxy
     rs <- dbSendQuery(database,
                       paste(sprintf("select tm from %s_daily ", symbols[1]),
-                            "where tm between '2009-01-30' and '2018-04-12';"
+                            "where tm between '2009-01-30' and '2018-03-16';"
                             ));
 
     ## jjg, weat, soyb
