@@ -38,7 +38,7 @@ rdsct.exp <- function(n, q)
 }
 
 ## fit.arma <- function(X, order.max=c(1,1), include.mean=NA)
-fit.arma <- function(X)
+fit.arima <- function(X)
 {
     X1 <- X;
     d <- 0;
