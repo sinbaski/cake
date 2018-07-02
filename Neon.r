@@ -45,12 +45,8 @@ propose.trade <- function(T1, exposure.max, Y, E)
         return(es);
     }
     for (i in 1:K) {
-        ## model <- fit.arma(Y[, i]);
-        ## prediction <- predict(model, n.ahead=1);
-        ## metrics[i, ] <- c(prediction$pred[1], prediction$se[1]);
-        model <- auto.arima(Y[, i]);
-        prediction <- forecast(model, h=1);
-        metrics[i, ] <- c(prediction$mean[1], model$sigma2);
+        model <- auto.arima1(Y[, i]);
+        metrics[i, 1] <- forecast1(model);
     }
     if (sum(abs(metrics[, 1])) == 0) {
         return(c(rep(0, p), 0));

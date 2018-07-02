@@ -69,6 +69,29 @@ fit.arima <- function(X)
     return(model);
 }
 
+auto.arima1 <- function(X)
+{
+    return(auto.arima(X));
+}
+
+forecast1 <- function(model)
+{
+    mu <- forecast(model, h=1)$mean[1];
+    sigma2 <- model$sigma2;
+    return(c(mu, sigma2));
+}
+
+auto.arima2 <- function(X)
+{
+    return(fit.arima(X));
+}
+
+forecast2 <- function(model)
+{
+    prediction <- predict(model, n.ahead=1);
+    return(c(prediction$pred[1], prediction$se[1]));
+}
+
 ## fit.arma.2 <- function(X, order=c(1,1), include.mean=NA)
 ## {
 ##     bic <- Inf;
