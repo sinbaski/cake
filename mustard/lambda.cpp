@@ -129,9 +129,9 @@ int main(int argc, char *argv[])
     mysql_real_connect(conn, "127.0.0.1", "sinbaski", "q1w2e3r4",
 		       "market", 0, NULL, 0);
     string qstr(
-	"select home, away, N from ("
-	"       select home, away, count(*) as N from matches_train "
-	"       group by home, away "
+	"select away, home, N from ("
+	"       select away, home, count(*) as N from matches_train "
+	"       group by away, home "
 	") as tbl where N >=");
     qstr += argv[1];
     mysql_query(conn, qstr.c_str());
@@ -139,40 +139,40 @@ int main(int argc, char *argv[])
     unsigned int L = mysql_num_rows(res);
     gsl_min_fminimizer *me = gsl_min_fminimizer_alloc(gsl_min_fminimizer_brent);
 
-    // estimate lambda[home][away] for those pairs that have directly
+    // estimate lambda[away][home] for those pairs that have directly
     // played against each other.
     for (unsigned int c = 0; c < L; c++) {
 	MYSQL_ROW row = mysql_fetch_row(res);
 
 	mysql_query(
 	    conn,
-	    string("select home_corners from matches_train "
-	    "where home ='" + string(row[0]) + "' and away = '" +
+	    string("select away_corners from matches_train "
+	    "where away ='" + string(row[0]) + "' and home = '" +
 		   string(row[1]) + "' ").c_str()
 	    );
 	MYSQL_RES *res2 = mysql_store_result(conn);
-	vector<unsigned int> home_corners(mysql_num_rows(res2));
+	vector<unsigned int> away_corners(mysql_num_rows(res2));
 	generate(
-	    home_corners.begin(), home_corners.end(),
+	    away_corners.begin(), away_corners.end(),
 	    [res2]() -> unsigned int {
 		MYSQL_ROW r = mysql_fetch_row(res2);
 		return stoul(r[0]);
 	    });
 	mysql_free_result(res2);
 
-	// maximum likelihood estimate of the lambda[home][away]
+	// maximum likelihood estimate of the lambda[away][home]
 	gsl_function func;
 	func.function = &poisson_nllh;
-	func.params = &home_corners;
+	func.params = &away_corners;
 	double lambda_init = accumulate(
-	    home_corners.cbegin(),
-	    home_corners.cend(), 0
-	    )/(double)home_corners.size();
+	    away_corners.cbegin(),
+	    away_corners.cend(), 0
+	    )/(double)away_corners.size();
 
 	double x, y, a;
-	a = poisson_nllh(lambda_init, &home_corners);
-	for (x = lambda_init; poisson_nllh(x, &home_corners) <= a; x/=2);
-	for (y = lambda_init; poisson_nllh(y, &home_corners) <= a; y*=2);
+	a = poisson_nllh(lambda_init, &away_corners);
+	for (x = lambda_init; poisson_nllh(x, &away_corners) <= a; x/=2);
+	for (y = lambda_init; poisson_nllh(y, &away_corners) <= a; y*=2);
 	gsl_min_fminimizer_set(me, &func, lambda_init, x, y);
 	int status;
 	do {
@@ -192,19 +192,19 @@ int main(int argc, char *argv[])
     mysql_free_result(res);
 
     mysql_query(
-	conn, "drop table if exists home_corners_intensity"
+	conn, "drop table if exists away_corners_intensity"
 	);
     mysql_query(
 	conn,
-	"create table home_corners_intensity ("
-	"home varchar(8), "
+	"create table away_corners_intensity ("
 	"away varchar(8), "
+	"home varchar(8), "
 	"intensity decimal(8, 4), "
 	"rank tinyint, "
-	"primary key (home, away))"
+	"primary key (away, home))"
 	);
     for (auto i = teams.cbegin(); i != teams.cend(); i=next(i)) {
-	string str("insert into home_corners_intensity values (");
+	string str("insert into away_corners_intensity values (");
 	str += "'" + i->second.teams[0] + "', '" + i->second.teams[1] + "', " +
 	    to_string(i->second.lambda) + ", 0)";
 	mysql_query(conn, str.c_str());
@@ -212,13 +212,13 @@ int main(int argc, char *argv[])
 
     mysql_query(
 	conn,
-	"select A.home, A.away, A.intensity, "
+	"select A.away, A.home, A.intensity, "
 	"avg(B.intensity), avg(C.intensity), 1 "
-	"from home_corners_intensity as A "
-	"join home_corners_intensity as B "
-	"join home_corners_intensity as C "
-	"on A.home = B.home and B.away = C.home and C.away = A.away "
-	"group by A.home, A.away "
+	"from away_corners_intensity as A "
+	"join away_corners_intensity as B "
+	"join away_corners_intensity as C "
+	"on A.away = B.away and B.home = C.away and C.home = A.home "
+	"group by A.away, A.home "
 	);
     res = mysql_store_result(conn);
     LinearModel model(res, 2, vector<int>{3,4,5});
@@ -226,9 +226,9 @@ int main(int argc, char *argv[])
     
     mysql_query(
 	conn,
-	"select home, away from matches_test "
-	"where (home, away) not in ( "
-	"      select home, away from home_corners_intensity "
+	"select away, home from matches_test "
+	"where (away, home) not in ( "
+	"      select away, home from away_corners_intensity "
 	") "
 	);
     res = mysql_store_result(conn);
@@ -240,10 +240,10 @@ int main(int argc, char *argv[])
 	sprintf(
 	    buf,
 	    "select avg(B.intensity), avg(C.intensity), count(*) "
-	    "from home_corners_intensity as B "
-	    "join home_corners_intensity as C "
-	    "on B.away = C.home "
-	    "where B.home = '%s' and C.away = '%s'",
+	    "from away_corners_intensity as B "
+	    "join away_corners_intensity as C "
+	    "on B.home = C.away "
+	    "where B.away = '%s' and C.home = '%s'",
 	    row[0], row[1]
 	    );
 	mysql_query(conn, buf);
@@ -262,7 +262,7 @@ int main(int argc, char *argv[])
 
 	sprintf(
 	    buf,
-	    "insert into home_corners_intensity values ("
+	    "insert into away_corners_intensity values ("
 	    "'%s', '%s', %.6f, 1)",
 	    row[0], row[1], intensity
 	    );

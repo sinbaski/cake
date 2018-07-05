@@ -15,8 +15,8 @@ exposure.max <- 1.5;
 resample.period <- 1;
 
 T1.min <- 15;
-T1.max <- 30;
-sharpe.min <- 0.3;
+T1.max <- 60;
+sharpe.min <- 0.1;
 loss.tol <- 5.0e-3;
 
 num.cores <- 6;
@@ -45,8 +45,8 @@ propose.trade <- function(T1, exposure.max, Y, E)
         return(es);
     }
     for (i in 1:K) {
-        model <- auto.arima1(Y[, i]);
-        metrics[i, ] <- forecast1(model);
+        model <- auto.arima2(Y[, i]);
+        metrics[i, ] <- forecast2(model);
     }
     if (sum(abs(metrics[, 1])) == 0) {
         return(c(rep(0, p), 0));
@@ -141,10 +141,10 @@ qrm <- function(thedate)
         ## prediction[i, 1] <- predict(model.ret, n.ahead=1)$pred[1];
         ## model.vol <- fit.arma(vl[, i]);
         ## prediction[i, 2] <- exp(predict(model.vol, n.ahead=1)$pred[1]);
-        model.ret <- auto.arima1(ret[, i]);
-        prediction[i, 1] <- forecast1(model.ret)[1];
-        model.vol <- auto.arima1(vl[, i]);
-        prediction[i, 2] <- exp(forecast1(model.vol)[1]);
+        model.ret <- auto.arima2(ret[, i]);
+        prediction[i, 1] <- forecast2(model.ret)[1];
+        model.vol <- auto.arima2(vl[, i]);
+        prediction[i, 2] <- exp(forecast2(model.vol)[1]);
     }
     if (use.database) {
         dbDisconnect(database);
@@ -220,9 +220,9 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
             pa <- strats[[i]]$params;
             c(pa$T1, pa$L);
         }), MARGIN=2));
-    clusterExport(cl, c("prices", "strats", "exposure.max", "auto.arima1",
+    clusterExport(cl, c("prices", "strats", "exposure.max", "auto.arima2",
                         "factor.algo", "propose.trade", "loss.tol",
-                        "sharpe.min", "adf.test", "forecast1", "fit.arima",
+                        "sharpe.min", "adf.test", "forecast2", "fit.arima",
                         "auto.arima", "forecast"));
     clusterExport(cl, c("timescales"), envir=environment());
     proposals <- t(parSapply(
