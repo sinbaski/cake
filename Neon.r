@@ -16,7 +16,7 @@ resample.period <- 1;
 
 T1.min <- 15;
 T1.max <- 30;
-sharpe.min=0.3;
+sharpe.min <- 0.3;
 loss.tol <- 5.0e-3;
 
 num.cores <- 6;
@@ -46,7 +46,7 @@ propose.trade <- function(T1, exposure.max, Y, E)
     }
     for (i in 1:K) {
         model <- auto.arima1(Y[, i]);
-        metrics[i, 1] <- forecast1(model);
+        metrics[i, ] <- forecast1(model);
     }
     if (sum(abs(metrics[, 1])) == 0) {
         return(c(rep(0, p), 0));
@@ -141,10 +141,10 @@ qrm <- function(thedate)
         ## prediction[i, 1] <- predict(model.ret, n.ahead=1)$pred[1];
         ## model.vol <- fit.arma(vl[, i]);
         ## prediction[i, 2] <- exp(predict(model.vol, n.ahead=1)$pred[1]);
-        model.ret <- auto.arima(ret[, i]);
-        prediction[i, 1] <- forecast(model.ret, h=1)$mean[1];
-        model.vol <- auto.arima(vl[, i]);
-        prediction[i, 2] <- exp(forecast(model.vol, h=1)$mean[1]);
+        model.ret <- auto.arima1(ret[, i]);
+        prediction[i, 1] <- forecast1(model.ret)[1];
+        model.vol <- auto.arima1(vl[, i]);
+        prediction[i, 2] <- exp(forecast1(model.vol)[1]);
     }
     if (use.database) {
         dbDisconnect(database);
@@ -220,9 +220,10 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
             pa <- strats[[i]]$params;
             c(pa$T1, pa$L);
         }), MARGIN=2));
-    clusterExport(cl, c("prices", "strats", "exposure.max", "auto.arima",
+    clusterExport(cl, c("prices", "strats", "exposure.max", "auto.arima1",
                         "factor.algo", "propose.trade", "loss.tol",
-                        "sharpe.min", "adf.test", "forecast"));
+                        "sharpe.min", "adf.test", "forecast1", "fit.arima",
+                        "auto.arima", "forecast"));
     clusterExport(cl, c("timescales"), envir=environment());
     proposals <- t(parSapply(
         cl, 1:dim(timescales)[1], FUN=function(i) {
@@ -273,6 +274,7 @@ trade <- function(thedate, confidence=0.01, risk.tol=7.5e-3)
         ## holding[, p+1] <- holding[, 1+p] +
         ##     (1 - scaling) * apply(loading, MARGIN=1, FUN=sum);
         ## loading <- loading * scaling;
+        ## scaling <- 1/exposure;
         H[1:p] <- H[1:p] * scaling;
         H[p+1] <- 1 - sum(H[1:p] * tail(prices, n=1));
     }
@@ -464,7 +466,7 @@ update.prices <- function(tm)
 }
 
 symbols <- c(
-    "spy",  ## S&P 500
+    ## "spy",  ## S&P 500
     ## "dia",  ## Dow Jones
     ## "qqq",  ## Nasdaq
     ## "ezu",  ## Euro zone equities
@@ -479,7 +481,7 @@ symbols <- c(
     ## "fxb",  ## British pound
     ## "fxc",  ## Canadian dollar
     "fxe",  ## euro
-    "fxy",  ## Japanese yen
+    "fxy"  ## Japanese yen
     ## "goog", ## Google
     ## "aapl",    ## Apple inc.
     ## "iau",  ## gold
@@ -493,7 +495,7 @@ symbols <- c(
     ## "soyb"
     ## "cane"
     ## "nib"
-    "vxx"  ## SP500 short term volatility
+    ## "vxx"  ## SP500 short term volatility
     ## "vixy", ## SP500 short term volatility
     ## "vxz",  ## SP500 mid term volatility
     ## "viix"  ## SP500 short term volatility
@@ -540,7 +542,7 @@ if (!use.database) {
                                         symbols[i], symbols[i+1]));
         }
     }
-    stmt <- paste(stmt, sprintf("where weekday(%s_daily.tm) = 2", symbols[1]));
+    ## stmt <- paste(stmt, sprintf("where weekday(%s_daily.tm) = 2", symbols[1]));
     rs <- dbSendQuery(database, stmt);
     ## jjg, weat, soyb
     ## rs <- dbSendQuery(database,

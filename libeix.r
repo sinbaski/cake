@@ -1,5 +1,7 @@
 require(sde);
 require(tseries);
+require(rugarch)
+require(forecast)
 
 erf <- function(x) 2 * pnorm(x * sqrt(2)) - 1;
 last <- function(x) tail(x, n=1);
@@ -89,9 +91,17 @@ auto.arima2 <- function(X)
 forecast2 <- function(model)
 {
     prediction <- predict(model, n.ahead=1);
-    return(c(prediction$pred[1], prediction$se[1]));
+    return(as.vector(c(prediction$pred[1], prediction$se[1])));
 }
 
+auto.arima3 <- function(series)
+{
+    d <- max(floor(log(length(series))) - 1, 1);
+    fit <- autoarfima(series, ar.max=d, ma.max=d, arfima=NULL,
+                      cluster=cl,
+                      method="full", distribution.model="std");
+    return(fit);
+}
 ## fit.arma.2 <- function(X, order=c(1,1), include.mean=NA)
 ## {
 ##     bic <- Inf;
