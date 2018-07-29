@@ -1,17 +1,19 @@
 CC := g++
 
-CFLAGS := -std=c++11 -c -g3 $(shell mysql_config --cflags)
-LDFLAGS := $(shell mysql_config --libs) ## $(shell pkg-config --libs gsl)
+CFLAGS := -std=c++14 -Wall -c -g3 $(shell mysql_config --cflags) \
+-I/usr/local/include -fopenmp
 
-src := aggregate.cpp
+LDFLAGS := $(shell mysql_config --libs) $(shell pkg-config --libs gsl) \
+-L/usr/local/lib -fopenmp
 
+## src := aggregate.cpp
 %.o: %.cpp
 	$(CC) $(CFLAGS) $^ -o $@
 
-trader: aggregate.o
-	$(CC) $< $(LDFLAGS) -o $@
+test: Neon.o
+	$(CC) $^ $(LDFLAGS) -o $@
 
 .PHONY: clean
 clean:
-	rm -f *.o trader
+	rm -f *.o test
 
